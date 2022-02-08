@@ -14,10 +14,10 @@ class Data:
 class DataManager:
   dataQueue: SimpleQueue
   stopped = True
-  nameCrop = (140,83,340,105)
-  allianceCrop = (140,114,340,134)
+  nameCrop = (140,83,340,110)
+  allianceCrop = (140,114,340,144)
   powerCrop = (316,210,435,230)
-  idCrop = (284,180,347,201)
+  idCrop = (284,180,347,210)
 
   def __init__(self) -> None:
     self.dataQueue = SimpleQueue()
@@ -69,9 +69,10 @@ class DataManager:
       alliance = Vision.findText(allianceImg)
 
     idImg = Vision.crop(img, self.idCrop)
-    id = int("".join(filter(str.isdigit,Vision.findText(idImg))))
+    id = Vision.findText(idImg)
     powerImg = Vision.crop(img, self.powerCrop)
-    power = int("".join(filter(str.isdigit,Vision.findText(powerImg))))
+    power = Vision.findText(powerImg)
+    power = power
 
     self.sendData(id, name, alliance, power, x, y)
 
@@ -90,7 +91,7 @@ class DataManager:
       cur = con.execute('''
       SELECT * FROM ant_hills WHERE id IS ?
       ''', (str(id),))
-      result = cur.fetchall()
+      result = cur.fetchone()
       return result
 
 

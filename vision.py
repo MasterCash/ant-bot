@@ -20,9 +20,14 @@ class Vision:
         return points
 
     @staticmethod
-    def getClickPoint(rect: tuple[int, int, int, int]) -> tuple[int, int]:
+    def getClickPoint(rect: tuple[int, int, int, int], offset: tuple[int, int, int, int] = None) -> tuple[int, int]:
         (x, y, w, h) = rect
-        return (x + int(w/2), y + int(h/2))
+
+        point = (x + int(w/2), y + int(h/2))
+        if offset is not None:
+            point[0] += offset[0]
+            point[1] += offset[1]
+        return point
 
     # given a list of [x, y, w, h] rectangles and a canvas ima~~ge to draw on, return an image with
     # all of those rectangles drawn
@@ -38,7 +43,17 @@ class Vision:
             bottom_right = (x + w, y + h)
             # draw the box
             cv.rectangle(baseImg, top_left, bottom_right, line_color, lineType=line_type)
+        return baseImg
 
+    @staticmethod
+    def drawCoordinates(baseImg, coords, names):
+        line_color = (0,0,255)
+        line_type = cv.LINE_4
+        i = 0
+        for (x1, y1, x2, y2) in coords:
+            cv.rectangle(baseImg, (x1, y1), (x2, y2), line_color, lineType=line_type)
+            cv.putText(baseImg, str(names[i]), (x1, y1), cv.FONT_HERSHEY_PLAIN, 1.5, line_color, lineType=line_type)
+            i += 1
         return baseImg
 
     # given a list of [x, y] positions and a canvas image to draw on, return an image with all

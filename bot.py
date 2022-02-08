@@ -17,28 +17,29 @@ class State:
 
 
 class Icon:
-  info = 0
-  search = 1
-  power = 2
-  x = 3
-  coords = 4
-  share = 5
-  creature = 6
-  app = 7
-  rally = 8
-  ruler = 9
-  alliance = 10
+  info = "info"
+  search = "search"
+  power = "power"
+  x = "x"
+  coords = "coords"
+  share = "share"
+  creature = "creature"
+  app = "app"
+  rally = "rally"
+  ruler = "ruler"
+  alliance = "alliance"
 
 class Bot:
-  LOADING_SECONDS = 5
-  ICON_MATCH_THRESHOLD = 0.875
+  LOADING_SECONDS = 6
+  ICON_MATCH_THRESHOLD = 0.8
+  HILL_SECONDS = 1
   SLEEP_SECONDS = 0.5
 
   stopped = True
   screenshotLock = None
   state = None
   screenshot = None
-  matches = {}
+  matches: dict[Icon, tuple[int, int, int, int]] = {}
   timestamp = None
   windowOffset = (0,0)
   windowSize = (0,0)
@@ -47,7 +48,7 @@ class Bot:
   searchIcon = None
   powerIcon = None
   xIcon = None
-  serverX = 0#int(288 / 2)
+  serverX = int(468 / 2)
   serverY = 0#int(886 / 2)
   previousState = None
   yUpdated = True
@@ -56,6 +57,7 @@ class Bot:
   sendData = None
   leavePoint = None
   centerPoint = None
+  iconCrops: dict[Icon, tuple[int, int, int, int]] = {}
 
   def __init__(self, windowOffset, windowSize, debug = False, focus = None, addData = None) -> None:
     self.screenshotLock = Lock()
@@ -73,6 +75,18 @@ class Bot:
     self.icons[Icon.ruler] = cv.imread('icons/ruler-text.png', cv.IMREAD_UNCHANGED)
     self.icons[Icon.alliance] = cv.imread('icons/alliance-icon.png', cv.IMREAD_UNCHANGED)
 
+    self.iconCrops[Icon.info] = (80, 470, 240, 610)
+    self.iconCrops[Icon.search] = (0, 500, 80, 660)
+    self.iconCrops[Icon.power] = (120, 25, 335, 105)
+    self.iconCrops[Icon.x] = (395, 65, 445, 115)
+    self.iconCrops[Icon.coords] = (135, 585, 330, 640)
+    self.iconCrops[Icon.share] = (250, 240, 400, 355)
+    self.iconCrops[Icon.creature] = (100, 500, 380, 600)
+    self.iconCrops[Icon.app] = (320, 150, 420, 250)
+    self.iconCrops[Icon.rally] = (100, 600, 380, 690)
+    self.iconCrops[Icon.ruler] = (200, 10, 290, 65)
+    self.iconCrops[Icon.alliance] = (340, 105, 390, 180)
+
     self.state = State.Initializing
     self.timestamp = time()
     self.debug = debug
@@ -81,9 +95,13 @@ class Bot:
     self.leavePoint = (self.windowSize[0] - 10, self.windowSize[1] - 10)
     self.centerPoint = (self.windowSize[0] / 2, self.windowSize[1] / 2)
 
-  def confirmIcon(self, icon, iconType) -> tuple[bool, tuple[int, int] | None]:
-    results = Vision.find(self.screenshot, icon, self.ICON_MATCH_THRESHOLD)
+  def confirmIcon(self, icon, type) -> tuple[bool, tuple[int, int] | None]:
+    base = Vision.setGrey(self.screenshot.copy())
+    base = Vision.crop(base, self.iconCrops[type])
+    results = Vision.find(base, icon, self.ICON_MATCH_THRESHOLD)
     if len(results) > 0:
+      results[0][0] += self.iconCrops[type][0]
+      results[0][1] += self.iconCrops[type][1]
       return (True, results[0])
     return (False,)
 
@@ -105,6 +123,12 @@ class Bot:
     matches = list(self.matches.values())
     return matches
 
+  def getCrops(self):
+    if not self.debug:
+      return []
+    crops = list(self.iconCrops.values())
+    return crops
+
   def start(self):
     self.stopped = False
     t = Thread(target=self.run)
@@ -115,7 +139,8 @@ class Bot:
 
   def findIcons(self):
     for icon in self.icons:
-      found = self.confirmIcon(self.icons[icon], icon)
+      img = Vision.setGrey(self.icons[icon].copy())
+      found = self.confirmIcon(img, icon)
       if found[0]:
         self.matches[icon] = found[1]
       elif icon in self.matches:
@@ -166,7 +191,6 @@ class Bot:
       if self.screenshot is None:
         continue
       self.findIcons()
-
       if Icon.app in self.matches:
         self.updateState(State.Unknown)
 
@@ -190,27 +214,25 @@ class Bot:
               self.updateState(State.OnMap)
             else:
               self.clickPoint(self.leavePoint)
-              sleep(self.LOADING_SECONDS)
-          else:
-            self.updateState(State.Unknown)
 
         case State.OnMap:
           if Icon.search in self.matches:
             self.pressKey("tab")
-            self.pressKey("space")
           elif Icon.coords in self.matches:
             self.updateState(State.SearchPoint)
           elif Icon.power in self.matches:
             self.updateState(State.InAntHill)
           else:
-            self.updateState(State.Unknown)
+            self.pressKey("space")
 
         case State.SearchPoint:
           if Icon.coords in self.matches:
             self.enterData("x", str(self.serverX * 2))
+            sleep(self.SLEEP_SECONDS)
             if self.yUpdated:
               self.enterData("y", str(self.serverY * 2))
               self.yUpdated = False
+              sleep(self.SLEEP_SECONDS)
             self.pressKey("f")
             self.updateState(State.AtLocation)
           else:
@@ -221,34 +243,45 @@ class Bot:
             alliance = Icon.alliance in self.matches
             self.sendData(self.screenshot.copy(), self.serverX, self.serverY, alliance)
             self.pressKey("escape")
-            self.updateState(State.OnMap)
             self.increment()
-            sleep(1)
+          if Icon.power in self.matches:
+            self.updateState(State.OnMap)
 
         case State.AtLocation:
           if Icon.info in self.matches:
             point = Vision.getClickPoint(self.matches[Icon.info])
             self.clickPoint(point)
+          elif Icon.ruler in self.matches:
             self.updateState(State.RecordInfo)
           elif Icon.creature in self.matches or Icon.rally in self.matches:
             self.pressKey("escape")
             self.increment()
             self.updateState(State.OnMap)
+            sleep(self.HILL_SECONDS)
           elif Icon.share in self.matches:
             self.increment()
             self.updateState(State.OnMap)
           else:
             self.clickPoint(self.centerPoint)
-            sleep(1)
+            sleep(self.HILL_SECONDS)
 
         case State.Unknown:
+          self.yUpdated = True
           if Icon.app in self.matches:
             print("app crashed")
             self.SLEEP_SECONDS += .05
             print("new speed: {}".format(self.SLEEP_SECONDS))
             point = Vision.getClickPoint(self.matches[Icon.app])
             self.clickPoint(point)
-            sleep(5)
+            sleep(self.LOADING_SECONDS)
+            self.updateState(State.Initializing)
+          elif self.previousState is State.InAntHill:
+            self.LOADING_SECONDS += 1
+            print("longer sleep")
+            self.updateState(State.Initializing)
+          elif self.previousState is State.OnMap:
+            print("longer sleep")
+            self.HILL_SECONDS += .5
             self.updateState(State.Initializing)
           else:
             pyautogui.alert("Something went wrong, came from {}: please restart app".format(self.previousState))
