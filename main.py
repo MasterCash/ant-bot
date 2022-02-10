@@ -1,45 +1,46 @@
+import asyncio
+from typing import Any, Callable, Coroutine
 import cv2 as cv
 from cv2 import LINE_4
 import numpy as np
-from bot import Bot
+from bot import handleState
 
-from windowcapture import WindowCapture
-from vision import Vision
 from time import time
 from datamanager import DataManager
 from discordbot import DiscordRunner
+from windowcapture import CaptureData, getWindowInfo
+async def main():
 
-wincap = WindowCapture("BlueStacks")
-dm = DataManager()
-bot = Bot(wincap.getOffset(), wincap.getSize(), True, focus=wincap.setFocus, addData=dm.addData)
-discord = DiscordRunner(dm)
-wincap.start()
-bot.start()
-dm.start()
-discord.start()
-loop_time = time()
+  database = DataManager()
+  discord = DiscordRunner(database)
+  locs: list[tuple[int, int, int, int]] = [
+    (0, 0, 399, 399),
+    (400, 0, 600, 399),
+    (0, 400, 399, 600),
+    (400, 400, 600, 600)
+  ]
 
-while(True):
-  if wincap.screenshot is None:
-    continue
-  bot.updateScreenshot(wincap.screenshot)
-  if cv.waitKey(1) == ord('q') or bot.stopped:
-    wincap.stop()
-    bot.stop()
-    cv.destroyAllWindows()
-    break
-  img = Vision.drawRectangles(np.copy(wincap.screenshot), bot.getMatches())
-  img = Vision.drawCoordinates(img, bot.getCrops(), list(bot.iconCrops.keys()))
-  #img = Vision.drawCoordinates(img, [dm.nameCrop, dm.powerCrop, dm.allianceCrop, dm.idCrop], ["name", "power", "alliance", "id"])
-  cv.imshow("Matches", img)
-  print("FPS {}".format(1 /(time() - loop_time)))
-  loop_time = time()
+  captures: list[CaptureData] = []
+  for window in ["BlueStacks"]:
+    captures.append(getWindowInfo(window))
 
-print('done')
-wincap.stop()
-bot.stop()
-dm.stop()
-discord.stop()
-cv.destroyAllWindows()
+  stateHandlers: list[Coroutine[Any, Any, Callable[[], bool]]] = []
+  for i in range(len(captures)):
+    stateHandlers.append(handleState(captures[i], locs[i], database.addData))
 
+  stopped = False
+  while not stopped:
+    stopped = True
+    waits: list[asyncio.Task] = []
+    for i in range(len(stateHandlers)):
+      print("creating task")
+      waits.append(asyncio.create_task(stateHandlers[i]()))
+    for wait in waits:
+      print("awaiting task")
+      if not wait.done():
+        await wait
+      if not wait.result():
+        stopped = False
+  await discord.stop()
 
+asyncio.run(main())

@@ -54,8 +54,8 @@ class DiscordBot(commands.Bot):
   def begin(self):
     self.run(TOKEN)
 
-  def stop(self):
-    self.close()
+  async def stop(self):
+    await self.close()
 class DiscordRunner:
   stopped: bool = True
   bot: DiscordBot
@@ -69,6 +69,6 @@ class DiscordRunner:
 
   def run(self):
     self.bot.begin()
-  def stop(self):
+  async def stop(self):
     self.stopped = True
-    self.bot.stop()
+    await self.bot.stop()
