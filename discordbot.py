@@ -18,18 +18,20 @@ class dataQuery(commands.Cog):
   @commands.command()
   async def antName(self, ctx, name: str):
     print(f"user requested {name} data")
-    results = self.dataManager.getIdFromName(name)
-    if results is not None:
-      results = self.dataManager.getDataFromId(results)
-      msg = f'''****Info****
-  Name: {name}
-  id: {results[0]}
-  alliance: {results[1]}
-  power: {results[2]}
-  coords: {results[3]}, {results[4]}
-  last checked: {results[5]}
-      '''
-      await ctx.send(msg)
+    uid = self.dataManager.getIdFromName(name)
+    if uid is not None:
+      data = self.dataManager.getDataFromId(uid)
+      msg = f"{name} existed but No data found at {uid}"
+      if data is not None:
+        msg = f'''****Info****
+    Name: {name}
+    id: {uid}
+    alliance: {data[1]}
+    power: {data[2]}
+    coords: {data[3]}, {data[4]}
+    last checked: {data[5]}
+        '''
+        await ctx.send(msg)
     else:
       await ctx.send(f"unable to find {name}")
     pass
@@ -55,7 +57,8 @@ class DiscordBot(commands.Bot):
     self.run(TOKEN)
 
   async def stop(self):
-    await self.close()
+    await self.logout()
+
 class DiscordRunner:
   stopped: bool = True
   bot: DiscordBot
