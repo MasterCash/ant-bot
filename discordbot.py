@@ -57,7 +57,7 @@ class DiscordBot(commands.Bot):
     self.run(TOKEN)
 
   async def stop(self):
-    await self.logout()
+    await self.close()
 
 class DiscordRunner:
   stopped: bool = True
