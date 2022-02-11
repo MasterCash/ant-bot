@@ -1,12 +1,32 @@
-from typing import Any
+from threading import Lock, Thread
+from typing import Any, Callable
 import cv2 as cv
+import numpy as np
 import pyautogui
-from time import sleep, time
-from threading import Thread, Lock
+from time import sleep
 from vision import Vision
+from enum import Enum
 
+from windowcapture import CaptureData
+lock = Lock()
 
-class State:
+killSwitch: list[bool] = [False]
+
+class Position:
+  current: tuple [int, int]
+  start: tuple[int, int]
+  end: tuple[int, int]
+  yUpdated: bool
+  finished: bool
+
+  def __init__(self, start: tuple[int, int], max: tuple[int, int]) -> None:
+    self.start = start
+    self.end = max
+    self.current = (start[0], start[1])
+    self.yUpdated = True
+    self.finished = False
+
+class State(Enum):
   Initializing = 0
   InAntHill = 1
   OnMap = 2
@@ -15,276 +35,227 @@ class State:
   Unknown = 5
   AtLocation = 6
 
-
-class Icon:
+class Action(Enum):
+  Click = "Click"
+  Non = "Non"
+  Key = "Key"
+  Data = "Data"
+class Icon(Enum):
   info = "info"
   search = "search"
   power = "power"
   x = "x"
   coords = "coords"
   share = "share"
-  creature = "creature"
+  creatureSearch = "creature-search"
+  creatureAttack = "creature-attack"
   app = "app"
   rally = "rally"
   ruler = "ruler"
   alliance = "alliance"
 
-class Bot:
-  LOADING_SECONDS = 6
-  ICON_MATCH_THRESHOLD = 0.8
-  HILL_SECONDS = 1
-  SLEEP_SECONDS = 0.5
+class Consts:
+  icons: dict[Icon, Any] = dict([
+    (Icon.info, cv.imread('icons/info-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.search, cv.imread('icons/search-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.power, cv.imread('icons/power-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.x, cv.imread('icons/x-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.coords, cv.imread('icons/enter-coords.png', cv.IMREAD_UNCHANGED)),
+    (Icon.share, cv.imread('icons/share-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.creatureSearch, cv.imread('icons/creature-search-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.creatureAttack, cv.imread('icons/creature-attack-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.app, cv.imread('icons/app-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.rally, cv.imread('icons/rally-icon.png', cv.IMREAD_UNCHANGED)),
+    (Icon.ruler, cv.imread('icons/ruler-text.png', cv.IMREAD_UNCHANGED)),
+    (Icon.alliance, cv.imread('icons/alliance-icon.png', cv.IMREAD_UNCHANGED)),
+  ])
 
-  stopped = True
-  screenshotLock = None
-  state = None
-  screenshot = None
-  matches: dict[Icon, tuple[int, int, int, int]] = {}
-  timestamp = None
-  windowOffset = (0,0)
-  windowSize = (0,0)
-  icons: dict[Icon, Any] = {}
-  infoIcon = None
-  searchIcon = None
-  powerIcon = None
-  xIcon = None
-  serverX = int(468 / 2)
-  serverY = 0#int(886 / 2)
-  previousState = None
-  yUpdated = True
-  debug = False
-  focus = None
-  sendData = None
-  leavePoint = None
-  centerPoint = None
-  iconCrops: dict[Icon, tuple[int, int, int, int]] = {}
+  iconCrops: dict[Icon, tuple[int, int, int, int]] = dict([
+    (Icon.info, (80, 470, 240, 610)),
+    (Icon.search, (0, 500, 80, 660)),
+    (Icon.power, (120, 25, 335, 105)),
+    (Icon.x, (395, 55, 445, 115)),
+    (Icon.coords, (135, 585, 330, 640)),
+    (Icon.share, (250, 240, 400, 355)),
+    (Icon.creatureSearch, (100, 500, 380, 600)),
+    (Icon.creatureAttack, (100, 500, 380, 600)),
+    (Icon.app, (320, 150, 420, 250)),
+    (Icon.rally, (100, 600, 380, 690)),
+    (Icon.ruler, (200, 10, 290, 65)),
+    (Icon.alliance, (340, 105, 390, 180)),
+  ])
 
-  def __init__(self, windowOffset, windowSize, debug = False, focus = None, addData = None) -> None:
-    self.screenshotLock = Lock()
-    self.windowOffset = windowOffset
-    self.windowSize = windowSize
-    self.icons[Icon.info] = cv.imread('icons/info-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.search] = cv.imread('icons/search-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.power] = cv.imread('icons/power-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.x] = cv.imread('icons/x-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.coords] = cv.imread('icons/enter-coords.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.share] = cv.imread('icons/share-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.creature] = cv.imread('icons/creature-search-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.app] = cv.imread('icons/app-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.rally] = cv.imread('icons/rally-icon.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.ruler] = cv.imread('icons/ruler-text.png', cv.IMREAD_UNCHANGED)
-    self.icons[Icon.alliance] = cv.imread('icons/alliance-icon.png', cv.IMREAD_UNCHANGED)
+  INPUT_SLEEP = .01
+  UI_SLEEP = .5
+  ICON_MATCH_THRESHOLD = .85
+  MAX_REPEAT = 300
 
-    self.iconCrops[Icon.info] = (80, 470, 240, 610)
-    self.iconCrops[Icon.search] = (0, 500, 80, 660)
-    self.iconCrops[Icon.power] = (120, 25, 335, 105)
-    self.iconCrops[Icon.x] = (395, 65, 445, 115)
-    self.iconCrops[Icon.coords] = (135, 585, 330, 640)
-    self.iconCrops[Icon.share] = (250, 240, 400, 355)
-    self.iconCrops[Icon.creature] = (100, 500, 380, 600)
-    self.iconCrops[Icon.app] = (320, 150, 420, 250)
-    self.iconCrops[Icon.rally] = (100, 600, 380, 690)
-    self.iconCrops[Icon.ruler] = (200, 10, 290, 65)
-    self.iconCrops[Icon.alliance] = (340, 105, 390, 180)
+def getLeavePoint(windowSize: tuple[int, int]):
+  return (windowSize[0] - 10, windowSize[1] - 10)
 
-    self.state = State.Initializing
-    self.timestamp = time()
-    self.debug = debug
-    self.focus = focus
-    self.sendData = addData
-    self.leavePoint = (self.windowSize[0] - 10, self.windowSize[1] - 10)
-    self.centerPoint = (self.windowSize[0] / 2, self.windowSize[1] / 2)
+def getCenterPoint(windowSize: tuple[int, int]):
+  return (windowSize[0] / 2, windowSize[1] / 2)
 
-  def confirmIcon(self, icon, type) -> tuple[bool, tuple[int, int] | None]:
-    base = Vision.setGrey(self.screenshot.copy())
-    base = Vision.crop(base, self.iconCrops[type])
-    results = Vision.find(base, icon, self.ICON_MATCH_THRESHOLD)
+def confirmIcon(img, icon, type) -> tuple[bool, tuple[int, int] | None]:
+    base = Vision.setGrey(img.copy())
+    base = Vision.crop(base, Consts.iconCrops[type])
+    results = Vision.find(base, icon, Consts.ICON_MATCH_THRESHOLD)
     if len(results) > 0:
-      results[0][0] += self.iconCrops[type][0]
-      results[0][1] += self.iconCrops[type][1]
+      results[0][0] += Consts.iconCrops[type][0]
+      results[0][1] += Consts.iconCrops[type][1]
       return (True, results[0])
-    return (False,)
+    return (False, None)
 
-  def getScreenPosition(self, pos):
-    return (pos[0] + self.windowOffset[0], pos[1] + self.windowOffset[1])
+def findIcons(base) -> dict[Icon, tuple[int, int, int, int]]:
+  matches = {}
+  for type in Consts.icons:
+    icon = Vision.setGrey(Consts.icons[type].copy())
+    found = confirmIcon(base, icon, type)
+    if found[0]:
+      matches[type] = found[1]
+  return matches
 
-  def updateScreenshot(self, screenshot):
-    self.screenshotLock.acquire()
-    self.screenshot = screenshot
-    self.screenshotLock.release()
+def clickPoint(point: tuple[int, int], shouldSleep: bool = True):
+  x,y = point
+  pyautogui.click(x=x, y=y)
+  if shouldSleep: sleep(Consts.INPUT_SLEEP)
 
-  def updateState(self, state):
-    self.previousState = self.state
-    self.state = state
+def pressKey(key: str, shouldSleep: bool = True):
+  pyautogui.press(key)
+  if shouldSleep: sleep(Consts.INPUT_SLEEP)
 
-  def getMatches(self):
-    if not self.debug:
-      return []
-    matches = list(self.matches.values())
-    return matches
+def pressHotKey(mod: str, key: str, shouldSleep: bool = True):
+  pyautogui.hotkey(mod, key)
+  if shouldSleep: sleep(Consts.INPUT_SLEEP)
 
-  def getCrops(self):
-    if not self.debug:
-      return []
-    crops = list(self.iconCrops.values())
-    return crops
+def enterText(text: str, shouldSleep: bool = True):
+  pyautogui.typewrite(text)
+  if shouldSleep: sleep(Consts.INPUT_SLEEP)
 
-  def start(self):
-    self.stopped = False
-    t = Thread(target=self.run)
-    t.start()
+def enterData(key, data, shouldSleep: bool = True):
+  pressKey(key, shouldSleep)
+  pressHotKey("ctrl", "a", shouldSleep)
+  pressKey("backspace", shouldSleep)
+  enterText(str(data), shouldSleep)
+  pressKey("enter", shouldSleep)
 
-  def stop(self):
-    self.stopped = True
+def processState(state: State, matches: dict[Icon, tuple[int, int, int, int]], windowSize: tuple[int, int]) -> tuple[State, Action, Any]:
+  if Icon.app in matches:
+    return (State.Initializing, Action.Click, Vision.getClickPoint(matches[Icon.app]))
+  match state:
+    case State.Initializing:
+      if Icon.x in matches:
+        point = Vision.getClickPoint(matches[Icon.x])
+        return (state, Action.Click, point)
+      if Icon.power in matches:
+        if Icon.search in matches:
+          return (State.OnMap, Action.Non, None)
+        return (State.InAntHill, Action.Non, None)
 
-  def findIcons(self):
-    for icon in self.icons:
-      img = Vision.setGrey(self.icons[icon].copy())
-      found = self.confirmIcon(img, icon)
-      if found[0]:
-        self.matches[icon] = found[1]
-      elif icon in self.matches:
-        self.matches.pop(icon)
+    case State.InAntHill:
+      if Icon.power in matches:
+        if Icon.search in matches:
+          return (State.OnMap, Action.Non, None)
+        return(state, Action.Click, getLeavePoint(windowSize))
 
-  def clickPoint(self, point):
-    x, y = self.getScreenPosition(point)
-    pyautogui.click(x=x, y=y)
-    sleep(self.SLEEP_SECONDS)
+    case State.OnMap:
+      if Icon.search in matches:
+        return (state, Action.Key, "tab")
+      if Icon.coords in matches:
+        return (State.SearchPoint, Action.Non, None)
+      if Icon.power in matches:
+        return (State.InAntHill, Action.Non, None)
+      return (state, Action.Key, "space")
 
-  def pressKey(self, key):
-    if self.focus != None:
-      self.focus()
-    pyautogui.press(key)
-    sleep(self.SLEEP_SECONDS)
+    case State.SearchPoint:
+      if Icon.coords in matches:
+        return (state, Action.Data, None)
+      if Icon.power in matches:
+        return (State.AtLocation, Action.Non, None)
+      #return (State.Unknown, Action.Non, None)
 
-  def pressHotKey(self, mod, key):
-    if self.focus != None:
-      self.focus()
-    pyautogui.hotkey(mod, key)
-    sleep(self.SLEEP_SECONDS)
+    case State.AtLocation:
+      if Icon.info in matches:
+        point = Vision.getClickPoint(matches[Icon.info])
+        return (state, Action.Click, point)
+      if Icon.ruler in matches:
+        return (State.RecordInfo, Action.Non, None)
+      if Icon.creatureSearch in matches or Icon.creatureAttack in matches or Icon.rally in matches:
+        return (State.OnMap, Action.Key, "escape")
+      if Icon.share in matches:
+        return (State.OnMap, Action.Non, None)
+      if Icon.search in matches:
+        return (state, Action.Click, getCenterPoint(windowSize))
 
-  def enterText(self, text):
-    if self.focus != None:
-      self.focus()
-      pyautogui.typewrite(text)
-      sleep(self.SLEEP_SECONDS)
+    case State.RecordInfo:
+      if Icon.ruler in matches:
+        return (state, Action.Key, "escape")
+      if Icon.power in matches:
+        return (State.OnMap, Action.Non, None)
 
-  def enterData(self, key, data):
-    self.pressKey(key)
-    self.pressHotKey("ctrl", "a")
-    self.pressKey("backspace")
-    self.enterText(str(data))
-    self.pressKey("enter")
+  return (state, Action.Non, None)
 
-  def increment(self):
-    self.serverX += 1
-    if self.serverX > 600:
-      self.serverX = 0
-      self.yUpdated = True
-      self.serverY += 1
-      if self.serverY > 600:
-        self.serverY = 0
-        self.stop()
+def increment(pos: Position):
+  x, y = pos.current
+  x += 1
+  if x > pos.end[0]:
+    x = pos.start[0]
+    y += 1
+    pos.yUpdated = True
+    if y > pos.end[1]:
+      y = pos.start[0]
+      pos.finished = True
+  pos.current = (x, y)
 
-  def run(self):
-    while not self.stopped:
-      if self.screenshot is None:
-        continue
-      self.findIcons()
-      if Icon.app in self.matches:
-        self.updateState(State.Unknown)
+def applyAction(update: tuple[State, Action, Any], screenPoint: Callable[[tuple[int, int]], tuple[int, int]], pos: Position, shouldSleep: bool):
+  state, action, data = update
+  if action is not None:
+    match action:
+      case Action.Click:
+        clickPoint(screenPoint(data), shouldSleep)
+      case Action.Data:
+        enterData("x", pos.current[0] * 2, shouldSleep)
+        if pos.yUpdated:
+          enterData("y", pos.current[1] * 2, shouldSleep)
+          pos.yUpdated = False
+        pressKey("f", shouldSleep)
+        increment(pos)
+      case Action.Key:
+        pressKey(data, shouldSleep)
 
-      ### App is loading up ###
-      match self.state:
 
-        case State.Initializing:
-          if Icon.x in self.matches:
-            # need to close the popup
-            point = Vision.getClickPoint(self.matches[Icon.x])
-            self.clickPoint(point)
-          elif Icon.power in self.matches:
-            if Icon.search in self.matches:
-              self.updateState(State.OnMap)
-            else:
-              self.updateState(State.InAntHill)
+def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendData: Callable[[np.ndarray, int, int, bool], None], name: str):
+  pos = Position((loc[0], loc[1]), (loc[2], loc[3]))
+  prevState = [State.Initializing]
+  count = [0]
+  def stateUpdate():
+    img = captureData.capture()
+    matches = findIcons(img)
+    update = processState(prevState[0], matches, captureData.size)
+    state, action, data = update
+    if action == Action.Key and data == "escape" and state == State.RecordInfo:
+      sendData(img, pos.current[0], pos.current[1], Icon.alliance in matches)
+    lock.acquire()
+    captureData.focus()
+    applyAction(update, captureData.screenPoint, pos, True)
+    lock.release()
+    sleep(Consts.UI_SLEEP)
+    if prevState[0] is state and state != State.Initializing:
+      count[0] += 1
+    else: count[0] = 0
+    if count[0] > Consts.MAX_REPEAT or state == State.Unknown:
+      pyautogui.alert(f"something went wrong, {prevState[0]} is now at {state} and repeated {count[0]} times")
+      prevState[0] = State.Initializing
+    prevState[0] = state
+    return pos.finished
 
-        case State.InAntHill:
-          if Icon.power in self.matches:
-            if Icon.search in self.matches:
-              self.updateState(State.OnMap)
-            else:
-              self.clickPoint(self.leavePoint)
+  return stateUpdate
 
-        case State.OnMap:
-          if Icon.search in self.matches:
-            self.pressKey("tab")
-          elif Icon.coords in self.matches:
-            self.updateState(State.SearchPoint)
-          elif Icon.power in self.matches:
-            self.updateState(State.InAntHill)
-          else:
-            self.pressKey("space")
 
-        case State.SearchPoint:
-          if Icon.coords in self.matches:
-            self.enterData("x", str(self.serverX * 2))
-            sleep(self.SLEEP_SECONDS)
-            if self.yUpdated:
-              self.enterData("y", str(self.serverY * 2))
-              self.yUpdated = False
-              sleep(self.SLEEP_SECONDS)
-            self.pressKey("f")
-            self.updateState(State.AtLocation)
-          else:
-            self.state = State.Unknown
+def start(updater: Callable[[], None], id: int, status: list[bool], killSwitch: list[bool]):
+  t = Thread(target=run, args=(updater, id, status, killSwitch))
+  t.start()
 
-        case State.RecordInfo:
-          if Icon.ruler in self.matches:
-            alliance = Icon.alliance in self.matches
-            self.sendData(self.screenshot.copy(), self.serverX, self.serverY, alliance)
-            self.pressKey("escape")
-            self.increment()
-          if Icon.power in self.matches:
-            self.updateState(State.OnMap)
-
-        case State.AtLocation:
-          if Icon.info in self.matches:
-            point = Vision.getClickPoint(self.matches[Icon.info])
-            self.clickPoint(point)
-          elif Icon.ruler in self.matches:
-            self.updateState(State.RecordInfo)
-          elif Icon.creature in self.matches or Icon.rally in self.matches:
-            self.pressKey("escape")
-            self.increment()
-            self.updateState(State.OnMap)
-            sleep(self.HILL_SECONDS)
-          elif Icon.share in self.matches:
-            self.increment()
-            self.updateState(State.OnMap)
-          else:
-            self.clickPoint(self.centerPoint)
-            sleep(self.HILL_SECONDS)
-
-        case State.Unknown:
-          self.yUpdated = True
-          if Icon.app in self.matches:
-            print("app crashed")
-            self.SLEEP_SECONDS += .05
-            print("new speed: {}".format(self.SLEEP_SECONDS))
-            point = Vision.getClickPoint(self.matches[Icon.app])
-            self.clickPoint(point)
-            sleep(self.LOADING_SECONDS)
-            self.updateState(State.Initializing)
-          elif self.previousState is State.InAntHill:
-            self.LOADING_SECONDS += 1
-            print("longer sleep")
-            self.updateState(State.Initializing)
-          elif self.previousState is State.OnMap:
-            print("longer sleep")
-            self.HILL_SECONDS += .5
-            self.updateState(State.Initializing)
-          else:
-            pyautogui.alert("Something went wrong, came from {}: please restart app".format(self.previousState))
-            sleep(5)
-          self.updateState(State.Initializing)
-
+def run(updater: Callable[[], None], id: int, status: list[bool], killSwitch: list[bool]):
+  while not (status[id] or all(killSwitch)):
+    status[id] = updater()

@@ -1,125 +1,68 @@
-from threading import Lock, Thread
+from threading import Lock
+from typing import Callable
 import numpy as np
 import win32gui, win32ui, win32con
 
+lock: Lock = Lock()
+class CaptureData:
+  capture: Callable[[], np.ndarray]
+  focus: Callable[[], None]
+  screenPoint: Callable[[tuple[int, int]], tuple[int, int]]
+  size: tuple[int, int]
 
-class WindowCapture:
+def getWindowInfo(windowName: str, offset: tuple[int, int, int, int] = (0,35,35,0)):
+  hwnd = win32gui.FindWindow(None, windowName)
+  if not hwnd:
+    return None
 
-    # properties
-    stopped = True
-    lock = None
-    screenshot = None
+  windowRect = win32gui.GetWindowRect(hwnd)
+  w = windowRect[2] - windowRect[0]
+  h = windowRect[3] - windowRect[1]
+  w = w - (offset[0] + offset[1])
+  h = h - (offset[2] + offset[3])
+  croppedX = offset[0]
+  croppedY = offset[2]
+  windowOffset = (windowRect[0] + croppedX, windowRect[1] + croppedY)
 
-    w = 0
-    h = 0
-    hwnd = None
-    cropped_x = 0
-    cropped_y = 0
-    offset_x = 0
-    offset_y = 0
+  def getCapture():
+    # get the window image data
+    lock.acquire()
+    wDC = win32gui.GetWindowDC(hwnd)
+    dcObj = win32ui.CreateDCFromHandle(wDC)
+    cDC = dcObj.CreateCompatibleDC()
+    dataBitMap = win32ui.CreateBitmap()
+    dataBitMap.CreateCompatibleBitmap(dcObj, w, h)
+    cDC.SelectObject(dataBitMap)
+    cDC.BitBlt((0, 0), (w, h), dcObj, (croppedX, croppedY), win32con.SRCCOPY)
 
-    # constructor
-    def __init__(self, window_name=None, offset=(0,35,35,0)):
-        self.lock = Lock()
+    # convert the raw data into a format opencv can read
+    signedIntsArray = dataBitMap.GetBitmapBits(True)
 
-        # find the handle for the window we want to capture.
-        # if no window name is given, capture the entire screen
-        if window_name is None:
-            self.hwnd = win32gui.GetDesktopWindow()
-        else:
-            self.hwnd = win32gui.FindWindow(None, window_name)
-            if not self.hwnd:
-                raise Exception('Window not found: {}'.format(window_name))
+    # free resources
+    dcObj.DeleteDC()
+    cDC.DeleteDC()
+    win32gui.ReleaseDC(hwnd, wDC)
+    win32gui.DeleteObject(dataBitMap.GetHandle())
+    lock.release()
 
-        # get the window size
-        window_rect = win32gui.GetWindowRect(self.hwnd)
-        self.w = window_rect[2] - window_rect[0]
-        self.h = window_rect[3] - window_rect[1]
+    img = np.fromstring(signedIntsArray, dtype='uint8')
+    img.shape = (h, w, 4)
+    img = np.ascontiguousarray(img)
+    return img
 
-        # account for the window border and titlebar and cut them off
-        self.w = self.w - (offset[0] + offset[1])
-        self.h = self.h - (offset[2] + offset[3])
-        self.cropped_x = offset[0]
-        self.cropped_y = offset[2]
+  def getFocus():
 
-        # set the cropped coordinates offset so we can translate screenshot
-        # images into actual screen positions
-        self.offset_x = window_rect[0] + self.cropped_x
-        self.offset_y = window_rect[1] + self.cropped_y
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except:
+        pass
 
-    def setFocus(self):
-        win32gui.SetForegroundWindow(self.hwnd)
+  def getScreenPosition(point: tuple[int, int]) -> tuple[int, int]:
+    return (point[0] + windowOffset[0], point[1] + windowOffset[1])
+  data: CaptureData = CaptureData()
+  data.capture = getCapture
+  data.focus = getFocus
+  data.screenPoint = getScreenPosition
+  data.size = (w, h)
 
-    def get_screenshot(self):
-
-        # get the window image data
-        wDC = win32gui.GetWindowDC(self.hwnd)
-        dcObj = win32ui.CreateDCFromHandle(wDC)
-        cDC = dcObj.CreateCompatibleDC()
-        dataBitMap = win32ui.CreateBitmap()
-        dataBitMap.CreateCompatibleBitmap(dcObj, self.w, self.h)
-        cDC.SelectObject(dataBitMap)
-        cDC.BitBlt((0, 0), (self.w, self.h), dcObj, (self.cropped_x, self.cropped_y), win32con.SRCCOPY)
-
-        # convert the raw data into a format opencv can read
-        signedIntsArray = dataBitMap.GetBitmapBits(True)
-        img = np.fromstring(signedIntsArray, dtype='uint8')
-        img.shape = (self.h, self.w, 4)
-
-        # free resources
-        dcObj.DeleteDC()
-        cDC.DeleteDC()
-        win32gui.ReleaseDC(self.hwnd, wDC)
-        win32gui.DeleteObject(dataBitMap.GetHandle())
-
-        # drop the alpha channel, or cv.matchTemplate() will throw an error like:
-        #   error: (-215:Assertion failed) (depth == CV_8U || depth == CV_32F) && type == _templ.type()
-        #   && _img.dims() <= 2 in function 'cv::matchTemplate'
-        #img = img[...,:3]
-
-        # make image C_CONTIGUOUS to avoid errors that look like:
-        #   File ... in draw_rectangles
-        #   TypeError: an integer is required (got type tuple)
-        # see the discussion here:
-        # https://github.com/opencv/opencv/issues/14866#issuecomment-580207109
-        img = np.ascontiguousarray(img)
-
-        return img
-
-    # find the name of the window you're interested in.
-    # once you have it, update window_capture()
-    # https://stackoverflow.com/questions/55547940/how-to-get-a-list-of-the-name-of-every-open-window
-    @staticmethod
-    def list_window_names():
-        def winEnumHandler(hwnd, _ctx):
-            if win32gui.IsWindowVisible(hwnd):
-                print(hex(hwnd), win32gui.GetWindowText(hwnd))
-        win32gui.EnumWindows(winEnumHandler, None)
-
-    # translate a pixel position on a screenshot image to a pixel position on the screen.
-    # pos = (x, y)
-    # WARNING: if you move the window being captured after execution is started, this will
-    # return incorrect coordinates, because the window position is only calculated in
-    # the __init__ constructor.
-    def get_screen_position(self, pos):
-        return (pos[0] + self.offset_x, pos[1] + self.offset_y)
-
-    def start(self):
-        self.stopped = False
-        t = Thread(target=self.run)
-        t.start()
-    def stop(self):
-        self.stopped = True
-
-    def run(self):
-        while not self.stopped:
-            screenshot = self.get_screenshot()
-            self.lock.acquire()
-            self.screenshot = screenshot
-            self.lock.release()
-
-    def getOffset(self):
-        return (self.offset_x, self.offset_y)
-
-    def getSize(self):
-        return(self.w, self.h)
+  return data

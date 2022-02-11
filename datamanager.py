@@ -14,8 +14,8 @@ class Data:
 class DataManager:
   dataQueue: SimpleQueue
   stopped = True
-  nameCrop = (140,83,340,110)
-  allianceCrop = (140,114,340,144)
+  nameCrop = (140,80,340,110)
+  allianceCrop = (140,110,340,144)
   powerCrop = (316,210,435,230)
   idCrop = (284,180,347,210)
 
@@ -69,12 +69,12 @@ class DataManager:
       alliance = Vision.findText(allianceImg)
 
     idImg = Vision.crop(img, self.idCrop)
-    id = Vision.findText(idImg)
+    uid = Vision.findText(idImg)
     powerImg = Vision.crop(img, self.powerCrop)
     power = Vision.findText(powerImg)
     power = power
 
-    self.sendData(id, name, alliance, power, x, y)
+    self.sendData(uid, name, alliance, power, x, y)
 
   def getIdFromName(self, name):
     con = self.getCon()
@@ -85,25 +85,36 @@ class DataManager:
       result = cur.fetchone()
       return result[0] if result != None else None
 
-  def getDataFromId(self, id):
+  def getDataFromId(self, uid):
     con = self.getCon()
     with con:
       cur = con.execute('''
       SELECT * FROM ant_hills WHERE id IS ?
-      ''', (str(id),))
+      ''', (str(uid),))
       result = cur.fetchone()
       return result
 
 
-  def sendData(self, id, name, alliance, power, x, y):
+  def sendData(self, uid, name, alliance, power, x, y):
     con = self.getCon()
+    if uid is None or not uid:
+      uid = "None"
+    if name is None or not name:
+      name = "None"
+    if power is None:
+      power = 0
+    if x is None:
+      x = -1
+    if y is None:
+      y = -1
+
     with con:
       con.execute('''
       INSERT OR REPLACE INTO ant_hills (id, alliance, power, x, y)
       VALUES (?, ?, ?, ?, ?)
-      ''',(id, alliance, power, x, y))
+      ''',(uid, alliance, power, x, y))
       con.execute('''
       INSERT OR REPLACE INTO id_names (id, name)
       VALUES (?, ?)
-      ''', (id, name))
+      ''', (uid, name))
     con.close()
