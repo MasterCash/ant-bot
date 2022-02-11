@@ -1,6 +1,5 @@
 import os
 from threading import Thread
-import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from datamanager import DataManager

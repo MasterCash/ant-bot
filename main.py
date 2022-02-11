@@ -1,15 +1,12 @@
 import asyncio
-from typing import Any, Callable, Coroutine
-import cv2 as cv
-from cv2 import LINE_4
-import numpy as np
-from bot import handleState
+from bot import handleState, start
 
-from time import time
+from time import sleep, time
 from datamanager import DataManager
 from discordbot import DiscordRunner
 from windowcapture import CaptureData, getWindowInfo
-async def main():
+
+def main():
 
   database = DataManager()
   discord = DiscordRunner(database)
@@ -21,26 +18,21 @@ async def main():
   ]
 
   captures: list[CaptureData] = []
-  for window in ["BlueStacks"]:
+  # add list of window names
+  for window in ["BlueStacks 2", ]:
     captures.append(getWindowInfo(window))
+  numCaptures = len(captures)
+  stopped = list(map(lambda x: False, range(numCaptures)))
+  killSwitch = [False]
+  runTime = time()
+  for i in range(numCaptures):
+    start(handleState(captures[i], locs[i],database.addData, str(i)), i, stopped, killSwitch)
+  while not all(stopped):
+    sleep(10)
+  runTime = time() - runTime
+  print(f"time: {runTime} sec with {numCaptures} instances")
+  killSwitch[0] = True
+  asyncio.run(discord.stop())
 
-  stateHandlers: list[Coroutine[Any, Any, Callable[[], bool]]] = []
-  for i in range(len(captures)):
-    stateHandlers.append(handleState(captures[i], locs[i], database.addData))
-
-  stopped = False
-  while not stopped:
-    stopped = True
-    waits: list[asyncio.Task] = []
-    for i in range(len(stateHandlers)):
-      print("creating task")
-      waits.append(asyncio.create_task(stateHandlers[i]()))
-    for wait in waits:
-      print("awaiting task")
-      if not wait.done():
-        await wait
-      if not wait.result():
-        stopped = False
-  await discord.stop()
-
-asyncio.run(main())
+if __name__ == "__main__":
+  main()

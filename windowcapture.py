@@ -51,7 +51,11 @@ def getWindowInfo(windowName: str, offset: tuple[int, int, int, int] = (0,35,35,
     return img
 
   def getFocus():
-    win32gui.SetForegroundWindow(hwnd)
+
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except:
+        pass
 
   def getScreenPosition(point: tuple[int, int]) -> tuple[int, int]:
     return (point[0] + windowOffset[0], point[1] + windowOffset[1])
