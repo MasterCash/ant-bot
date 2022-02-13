@@ -6,12 +6,15 @@ import pyautogui
 from time import sleep
 from vision import Vision
 from enum import Enum
+import win32con as wcon
 
-from windowcapture import CaptureData
+from windowManager import CaptureData
+
+# lock used to prevent overlapping input
 lock = Lock()
 
-killSwitch: list[bool] = [False]
-
+# position object used to hold start, end, and current position.
+# it also contains whether or not this position has finished
 class Position:
   current: tuple [int, int]
   start: tuple[int, int]
@@ -25,6 +28,18 @@ class Position:
     self.current = (start[0], start[1])
     self.yUpdated = True
     self.finished = False
+
+  def increment(self):
+    x, y = self.current
+    x += 1
+    if x > self.end[0]:
+      x = self.start[0]
+      y += 1
+      self.yUpdated = True
+      if y > self.end[1]:
+        y = self.start[0]
+        self.finished = True
+    self.current = (x, y)
 
 class State(Enum):
   Initializing = 0
@@ -85,10 +100,12 @@ class Consts:
     (Icon.alliance, (340, 105, 390, 180)),
   ])
 
-  INPUT_SLEEP = .01
+  INPUT_SLEEP = .05
+  DATA_SLEEP = .1
   UI_SLEEP = .5
+  MACRO_SLEEP = 2
   ICON_MATCH_THRESHOLD = .85
-  MAX_REPEAT = 300
+  MAX_REPEAT = 10
 
 def getLeavePoint(windowSize: tuple[int, int]):
   return (windowSize[0] - 10, windowSize[1] - 10)
@@ -115,30 +132,6 @@ def findIcons(base) -> dict[Icon, tuple[int, int, int, int]]:
       matches[type] = found[1]
   return matches
 
-def clickPoint(point: tuple[int, int], shouldSleep: bool = True):
-  x,y = point
-  pyautogui.click(x=x, y=y)
-  if shouldSleep: sleep(Consts.INPUT_SLEEP)
-
-def pressKey(key: str, shouldSleep: bool = True):
-  pyautogui.press(key)
-  if shouldSleep: sleep(Consts.INPUT_SLEEP)
-
-def pressHotKey(mod: str, key: str, shouldSleep: bool = True):
-  pyautogui.hotkey(mod, key)
-  if shouldSleep: sleep(Consts.INPUT_SLEEP)
-
-def enterText(text: str, shouldSleep: bool = True):
-  pyautogui.typewrite(text)
-  if shouldSleep: sleep(Consts.INPUT_SLEEP)
-
-def enterData(key, data, shouldSleep: bool = True):
-  pressKey(key, shouldSleep)
-  pressHotKey("ctrl", "a", shouldSleep)
-  pressKey("backspace", shouldSleep)
-  enterText(str(data), shouldSleep)
-  pressKey("enter", shouldSleep)
-
 def processState(state: State, matches: dict[Icon, tuple[int, int, int, int]], windowSize: tuple[int, int]) -> tuple[State, Action, Any]:
   if Icon.app in matches:
     return (State.Initializing, Action.Click, Vision.getClickPoint(matches[Icon.app]))
@@ -160,12 +153,12 @@ def processState(state: State, matches: dict[Icon, tuple[int, int, int, int]], w
 
     case State.OnMap:
       if Icon.search in matches:
-        return (state, Action.Key, "tab")
+        return (state, Action.Key, wcon.VK_TAB)
       if Icon.coords in matches:
         return (State.SearchPoint, Action.Non, None)
       if Icon.power in matches:
         return (State.InAntHill, Action.Non, None)
-      return (state, Action.Key, "space")
+      return (state, Action.Key, wcon.VK_SPACE)
 
     case State.SearchPoint:
       if Icon.coords in matches:
@@ -181,7 +174,7 @@ def processState(state: State, matches: dict[Icon, tuple[int, int, int, int]], w
       if Icon.ruler in matches:
         return (State.RecordInfo, Action.Non, None)
       if Icon.creatureSearch in matches or Icon.creatureAttack in matches or Icon.rally in matches:
-        return (State.OnMap, Action.Key, "escape")
+        return (State.OnMap, Action.Key, wcon.VK_ESCAPE)
       if Icon.share in matches:
         return (State.OnMap, Action.Non, None)
       if Icon.search in matches:
@@ -189,64 +182,73 @@ def processState(state: State, matches: dict[Icon, tuple[int, int, int, int]], w
 
     case State.RecordInfo:
       if Icon.ruler in matches:
-        return (state, Action.Key, "escape")
+        return (state, Action.Key,wcon.VK_ESCAPE)
       if Icon.power in matches:
         return (State.OnMap, Action.Non, None)
 
   return (state, Action.Non, None)
 
-def increment(pos: Position):
-  x, y = pos.current
-  x += 1
-  if x > pos.end[0]:
-    x = pos.start[0]
-    y += 1
-    pos.yUpdated = True
-    if y > pos.end[1]:
-      y = pos.start[0]
-      pos.finished = True
-  pos.current = (x, y)
-
-def applyAction(update: tuple[State, Action, Any], screenPoint: Callable[[tuple[int, int]], tuple[int, int]], pos: Position, shouldSleep: bool):
+def applyAction(prev_state: State, update: tuple[State, Action, Any], cap: CaptureData, pos: Position, shouldSleep: bool):
   state, action, data = update
+  if (prev_state == State.InAntHill or prev_state == State.Initializing) and state == State.OnMap:
+    pos.yUpdated = True
   if action is not None:
     match action:
       case Action.Click:
-        clickPoint(screenPoint(data), shouldSleep)
+        cap.click(data)
+        if shouldSleep: sleep(Consts.INPUT_SLEEP)
       case Action.Data:
-        enterData("x", pos.current[0] * 2, shouldSleep)
+        cap.select()
+        cap.key(ord("X"))
+        sleep(Consts.MACRO_SLEEP)
+        x = str(pos.current[0] * 2)
+        for num in x:
+          cap.key(ord(num))
+          sleep(Consts.DATA_SLEEP)
+        cap.key(wcon.VK_RETURN)
+        sleep(Consts.DATA_SLEEP)
         if pos.yUpdated:
-          enterData("y", pos.current[1] * 2, shouldSleep)
+          cap.select()
+          cap.key(ord("Y"))
+          sleep(Consts.MACRO_SLEEP)
+          y = str(pos.current[1] * 2)
+          for num in y:
+            cap.key(ord(num))
+            sleep(Consts.DATA_SLEEP)
+          cap.key(wcon.VK_RETURN)
+          sleep(Consts.DATA_SLEEP)
           pos.yUpdated = False
-        pressKey("f", shouldSleep)
-        increment(pos)
+        cap.key(ord("F"))
+        sleep(Consts.DATA_SLEEP)
+        pos.increment()
+        if shouldSleep: sleep(Consts.INPUT_SLEEP)
       case Action.Key:
-        pressKey(data, shouldSleep)
+        cap.key(data)
 
 
 def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendData: Callable[[np.ndarray, int, int, bool], None], name: str):
   pos = Position((loc[0], loc[1]), (loc[2], loc[3]))
   prevState = [State.Initializing]
+  prevAction = [Action.Non]
   count = [0]
   def stateUpdate():
     img = captureData.capture()
     matches = findIcons(img)
     update = processState(prevState[0], matches, captureData.size)
     state, action, data = update
+    if (count[0] > Consts.MAX_REPEAT and state == prevState[0] and action == prevAction[0]) or state == State.Unknown:
+      print(f"something went wrong, {prevState[0]} is now at {state} and repeated {count[0]} times with action: {action} Data: {data}")
+      prevState[0] = State.Initializing
+      return pos.finished
     if action == Action.Key and data == "escape" and state == State.RecordInfo:
       sendData(img, pos.current[0], pos.current[1], Icon.alliance in matches)
-    lock.acquire()
-    captureData.focus()
-    applyAction(update, captureData.screenPoint, pos, True)
-    lock.release()
+    applyAction(prevState[0], update, captureData, pos, True)
     sleep(Consts.UI_SLEEP)
-    if prevState[0] is state and state != State.Initializing:
+    if prevState[0] == state and action == prevAction[0] and state != State.Initializing:
       count[0] += 1
     else: count[0] = 0
-    if count[0] > Consts.MAX_REPEAT or state == State.Unknown:
-      pyautogui.alert(f"something went wrong, {prevState[0]} is now at {state} and repeated {count[0]} times")
-      prevState[0] = State.Initializing
     prevState[0] = state
+    prevAction[0] = action
     return pos.finished
 
   return stateUpdate
