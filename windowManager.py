@@ -47,14 +47,15 @@ def getWindowInfo(windowName: str, className: str or None = None, offset: tuple[
     wgui.DeleteObject(dataBitMap.GetHandle())
     lock.release()
 
+
     img = np.fromstring(signedIntsArray, dtype='uint8')
     img.shape = (h, w, 4)
+    # drop the alpha channel, or cv.matchTemplate() will throw an error like:
+    #   error: (-215:Assertion failed) (depth == CV_8U || depth == CV_32F) && type == _templ.type()
+    #   && _img.dims() <= 2 in function 'cv::matchTemplate'
+    #img = img[...,:3]
     img = np.ascontiguousarray(img)
     return img
-
-  def getScreenPosition(point: tuple[int, int]) -> tuple[int, int]:
-    return (point[0] + offset[0], point[1] + offset[1])
-
 
   # BlueStacks' input window
   hwndChild = wgui.GetWindow(hwnd, wcon.GW_CHILD)

@@ -68,20 +68,7 @@ class Icon(Enum):
   alliance = "alliance"
 
 class Consts:
-  icons: dict[Icon, Any] = dict([
-    (Icon.info, cv.imread('icons/info-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.search, cv.imread('icons/search-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.power, cv.imread('icons/power-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.x, cv.imread('icons/x-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.coords, cv.imread('icons/enter-coords.png', cv.IMREAD_UNCHANGED)),
-    (Icon.share, cv.imread('icons/share-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.creatureSearch, cv.imread('icons/creature-search-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.creatureAttack, cv.imread('icons/creature-attack-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.app, cv.imread('icons/app-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.rally, cv.imread('icons/rally-icon.png', cv.IMREAD_UNCHANGED)),
-    (Icon.ruler, cv.imread('icons/ruler-text.png', cv.IMREAD_UNCHANGED)),
-    (Icon.alliance, cv.imread('icons/alliance-icon.png', cv.IMREAD_UNCHANGED)),
-  ])
+  icons: dict[Icon, np.ndarray] = dict([(icon, cv.imread(f'icons/{icon.name}-icon.png', cv.IMREAD_GRAYSCALE)) for icon in Icon])
 
   iconCrops: dict[Icon, tuple[int, int, int, int]] = dict([
     (Icon.info, (94, 545, 277, 701)),
@@ -124,7 +111,7 @@ def confirmIcon(img, icon, type) -> tuple[bool, tuple[int, int] | None]:
 def findIcons(base) -> dict[Icon, tuple[int, int, int, int]]:
   matches = {}
   for type in Consts.icons:
-    icon = Vision.setGrey(Consts.icons[type].copy())
+    icon = Consts.icons[type].copy()
     found = confirmIcon(base, icon, type)
     if found[0]:
       matches[type] = found[1]

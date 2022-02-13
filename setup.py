@@ -3,7 +3,7 @@ import sys
 import cv2 as cv
 from windowManager import getWindowInfo
 from vision import Vision
-from bot import Consts
+from bot import Consts, findIcons
 from datamanager import DataManager
 class DataCrop(Enum):
   name = "name"
@@ -23,7 +23,7 @@ def main(window_name: str or None = None):
     (DataCrop.alliance,DataManager.allianceCrop),
   ])
 
-  #iconCrops = Consts.iconCrops.copy()
+  iconCrops = Consts.iconCrops.copy()
 
   keys = [icon for icon in iconCrops]
   curIcon = [keys[0]]
@@ -61,13 +61,20 @@ def main(window_name: str or None = None):
 
   while not stopped:
     img = capture.capture()
-    img = Vision.drawCoordinates(img, [iconCrops[curIcon[0]]], [curIcon[0].name])
+    img2 = Vision.drawCoordinates(img.copy(), [iconCrops[curIcon[0]]], [curIcon[0].name])
+    matches = findIcons(img)
+    img2 = Vision.drawRectangles(img2, list(matches.values()))
 
-
-    cv.imshow(f"setup: {window_name}", img)
-
-    if cv.waitKey(1) == ord("q"):
+    cv.imshow(f"setup: {window_name}", img2)
+    key = cv.waitKey(1)
+    if key == ord("q"):
       stopped = True
+
+    if key == ord('c'):
+      crop = Vision.crop(img, iconCrops[curIcon[0]])
+      crop = Vision.setGrey(crop)
+      cv.imwrite(f'./icons/{curIcon[0].name}-icon.png', crop)
+      print(f"saved: {curIcon[0].name} crop")
 
   for icon in iconCrops:
     print(f'(Icon.{icon.name}, {iconCrops[icon]}),')
