@@ -84,18 +84,18 @@ class Consts:
   ])
 
   iconCrops: dict[Icon, tuple[int, int, int, int]] = dict([
-    (Icon.info, (80, 470, 240, 610)),
-    (Icon.search, (0, 500, 80, 660)),
-    (Icon.power, (120, 25, 335, 105)),
-    (Icon.x, (395, 55, 445, 115)),
-    (Icon.coords, (135, 585, 330, 640)),
-    (Icon.share, (250, 240, 400, 355)),
-    (Icon.creatureSearch, (100, 500, 380, 600)),
-    (Icon.creatureAttack, (100, 500, 380, 600)),
-    (Icon.app, (320, 150, 420, 250)),
-    (Icon.rally, (100, 600, 380, 690)),
-    (Icon.ruler, (200, 10, 290, 65)),
-    (Icon.alliance, (340, 105, 390, 180)),
+    (Icon.info, (94, 545, 277, 701)),
+    (Icon.search, (0, 586, 80, 666)),
+    (Icon.power, (171, 25, 244, 82)),
+    (Icon.x, (456, 59, 515, 130)),
+    (Icon.coords, (152, 665, 393, 742)),
+    (Icon.share, (284, 284, 470, 403)),
+    (Icon.creatureSearch, (132, 584, 408, 683)),
+    (Icon.creatureAttack, (132, 584, 408, 683)),
+    (Icon.app, (389, 193, 476, 307)),
+    (Icon.rally, (147, 715, 409, 795)),
+    (Icon.ruler, (245, 12, 326, 51)),
+    (Icon.alliance, (406, 117, 450, 174))
   ])
 
   INPUT_SLEEP = .05

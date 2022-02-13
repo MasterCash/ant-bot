@@ -14,10 +14,10 @@ class Data:
 class DataManager:
   dataQueue: SimpleQueue
   stopped = True
-  nameCrop = (140,80,340,110)
-  allianceCrop = (140,110,340,144)
-  powerCrop = (316,210,435,230)
-  idCrop = (284,180,347,210)
+  nameCrop = (162, 96, 395, 121)
+  idCrop = (331, 211, 407, 232)
+  powerCrop = (395, 245, 505, 266)
+  allianceCrop = (163, 134, 396, 156)
 
   def __init__(self) -> None:
     self.dataQueue = SimpleQueue()
