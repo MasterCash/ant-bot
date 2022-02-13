@@ -1,5 +1,5 @@
 import asyncio
-from math import remainder
+from pygetwindow import Win32Window
 from bot import handleState, start
 
 from time import sleep, time
