@@ -60,7 +60,7 @@ def getWindowInfo(windowName: str, className: str or None = None, offset: tuple[
   hwndChild = wgui.GetWindow(hwnd, wcon.GW_CHILD)
 
   def mouseClick(point: tuple[int, int]):
-    x, y = point)
+    x, y = point
     lParam = wapi.MAKELONG(int(x), int(y))
     wapi.PostMessage(hwndChild, wcon.WM_LBUTTONDOWN, wcon.MK_LBUTTON, lParam)
     wapi.PostMessage(hwndChild, wcon.WM_LBUTTONUP, wcon.MK_LBUTTON, lParam)
