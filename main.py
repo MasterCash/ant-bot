@@ -1,11 +1,10 @@
 import asyncio
-from math import remainder
 from bot import handleState, start
-
 from time import sleep, time
 from datamanager import DataManager
 from discordbot import DiscordRunner
 from windowManager import CaptureData, getWindowInfo
+
 def splitLocations(num: int, max: tuple[int, int] = (600, 600)) -> list[tuple[int, int, int, int]]:
   chunk = int(max[0] / num)
   extra = ((num * chunk) % max[0]) + 1

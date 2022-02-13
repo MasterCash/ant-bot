@@ -47,7 +47,7 @@ class Vision:
 
     @staticmethod
     def drawCoordinates(baseImg, coords, names):
-        line_color = (0,0,255)
+        line_color = (0,255,255)
         line_type = cv.LINE_4
         i = 0
         for (x1, y1, x2, y2) in coords:

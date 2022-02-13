@@ -2,12 +2,10 @@ from threading import Lock, Thread
 from typing import Any, Callable
 import cv2 as cv
 import numpy as np
-import pyautogui
 from time import sleep
 from vision import Vision
 from enum import Enum
 import win32con as wcon
-
 from windowManager import CaptureData
 
 # lock used to prevent overlapping input
