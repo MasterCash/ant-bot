@@ -113,17 +113,20 @@ class DataManager:
     if y is None:
       y = -1
 
-    with con:
-      con.execute('''
-      INSERT OR REPLACE INTO ant_hills (id, power, x, y)
-      VALUES (?, ?, ?, ?)
-      ''',(uid, power, x, y))
-      con.execute('''
-      INSERT OR REPLACE INTO id_names (id, name)
-      VALUES (?, ?)
-      ''', (uid, name))
-      con.execute('''
-       INSERT OR REPLACE INTO id_alliances (id, name)
-       VALUES (?, ?)
-      ''', (uid, alliance))
+    try:
+      with con:
+        con.execute('''
+        INSERT OR REPLACE INTO ant_hills (id, power, x, y)
+        VALUES (?, ?, ?, ?)
+        ''',(uid, power, x, y))
+        con.execute('''
+        INSERT OR REPLACE INTO id_names (id, name)
+        VALUES (?, ?)
+        ''', (uid, name))
+        con.execute('''
+          INSERT OR REPLACE INTO id_alliances (id, name)
+          VALUES (?, ?)
+        ''', (uid, alliance))
+    except:
+      print(f'error entering: {uid}, {name}, {alliance}, {power}, {x}, {y}')
     con.close()

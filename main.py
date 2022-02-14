@@ -1,9 +1,8 @@
-import asyncio
 from bot import handleState, start
 from time import sleep, time
 from datamanager import DataManager
-from discordbot import DiscordRunner
 from windowManager import CaptureData, getWindowInfo
+import signal
 
 def splitLocations(num: int, max: tuple[int, int] = (600, 600)) -> list[tuple[int, int, int, int]]:
   chunk = int(max[0] / num)
@@ -13,11 +12,16 @@ def splitLocations(num: int, max: tuple[int, int] = (600, 600)) -> list[tuple[in
   locs[num -1] = (x1, y1, x2 + extra, y2)
   return locs
 
-def main():
 
+
+
+def main():
+  def handleInterrupt(signal, frame):
+    print("set killswitch")
+    killSwitch[0] = True
+    pass
   database = DataManager()
   database.start()
-  discord = DiscordRunner(database)
   captures: list[CaptureData] = []
   # add list of window names
   for window in ["BlueStacks", "BlueStacks 1","BlueStacks 2", "BlueStacks 3"]:
@@ -34,12 +38,13 @@ def main():
   runTime = time()
   for i in range(numCaptures):
     start(handleState(captures[i], locs[i],database.addData), i, stopped, killSwitch)
-  while not all(stopped):
-    sleep(10)
+  signal.signal(signal.SIGINT, handleInterrupt)
+  while not all(stopped) and not killSwitch[0]:
+    sleep(5)
+
   runTime = time() - runTime
   print(f"time: {runTime} sec with {numCaptures} instances")
   killSwitch[0] = True
-  asyncio.run(discord.stop())
   database.stop()
 if __name__ == "__main__":
   main()
