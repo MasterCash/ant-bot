@@ -89,7 +89,7 @@ class Consts:
   DATA_SLEEP = .1
   UI_SLEEP = .5
   MACRO_SLEEP = 2
-  ICON_MATCH_THRESHOLD = .85
+  ICON_MATCH_THRESHOLD = .8
   MAX_REPEAT = 10
 
 def getLeavePoint(windowSize: tuple[int, int]):
@@ -183,9 +183,10 @@ def applyAction(prev_state: State, update: tuple[State, Action, Any], cap: Captu
         cap.click(data)
         if shouldSleep: sleep(Consts.INPUT_SLEEP)
       case Action.Data:
-        cap.select()
         cap.key(ord("X"))
-        sleep(Consts.MACRO_SLEEP)
+        sleep(Consts.DATA_SLEEP)
+        cap.delete()
+        sleep(Consts.DATA_SLEEP)
         x = str(pos.current[0] * 2)
         for num in x:
           cap.key(ord(num))
@@ -193,9 +194,10 @@ def applyAction(prev_state: State, update: tuple[State, Action, Any], cap: Captu
         cap.key(wcon.VK_RETURN)
         sleep(Consts.DATA_SLEEP)
         if pos.yUpdated:
-          cap.select()
           cap.key(ord("Y"))
-          sleep(Consts.MACRO_SLEEP)
+          sleep(Consts.DATA_SLEEP)
+          cap.delete()
+          sleep(Consts.DATA_SLEEP)
           y = str(pos.current[1] * 2)
           for num in y:
             cap.key(ord(num))
@@ -211,18 +213,21 @@ def applyAction(prev_state: State, update: tuple[State, Action, Any], cap: Captu
         cap.key(data)
 
 
-def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendData: Callable[[np.ndarray, int, int, bool], None], name: str):
+def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendData: Callable[[np.ndarray, int, int, bool], None]):
   pos = Position((loc[0], loc[1]), (loc[2], loc[3]))
   prevState = [State.Initializing]
   prevAction = [Action.Non]
   count = [0]
+  name = captureData.window_name
   def stateUpdate():
     img = captureData.capture()
     matches = findIcons(img)
+    #img2 = Vision.drawRectangles(img.copy(), list(matches.values()))
+    #cv.imshow(f"Test: {name}", img2)
     update = processState(prevState[0], matches, captureData.size)
     state, action, data = update
     if (count[0] > Consts.MAX_REPEAT and state == prevState[0] and action == prevAction[0]) or state == State.Unknown:
-      print(f"something went wrong, {prevState[0]} is now at {state} and repeated {count[0]} times with action: {action} Data: {data}")
+      print(f"<< {name}: at {state} and repeated {count[0]} times with action: {action} Data: {data}")
       prevState[0] = State.Initializing
       return pos.finished
     if action == Action.Key and data == "escape" and state == State.RecordInfo:
@@ -246,3 +251,5 @@ def start(updater: Callable[[], None], id: int, status: list[bool], killSwitch: 
 def run(updater: Callable[[], None], id: int, status: list[bool], killSwitch: list[bool]):
   while not (status[id] or all(killSwitch)):
     status[id] = updater()
+    #if cv.waitKey(1) == ord("q"):
+    #  status[id] = True

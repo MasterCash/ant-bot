@@ -32,7 +32,7 @@ def main():
 
   runTime = time()
   for i in range(numCaptures):
-    start(handleState(captures[i], locs[i],database.addData, str(i)), i, stopped, killSwitch)
+    start(handleState(captures[i], locs[i],database.addData), i, stopped, killSwitch)
   while not all(stopped):
     sleep(10)
   runTime = time() - runTime

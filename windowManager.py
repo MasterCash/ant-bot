@@ -11,7 +11,9 @@ class CaptureData:
   click: Callable[[tuple[int, int]], None]
   size: tuple[int, int]
   key: Callable[[int], None]
-  select: Callable[[], None]
+  delete: Callable[[], None]
+  hwnd: int
+  window_name: str
 
 def getWindowInfo(windowName: str, className: str or None = None, offset: tuple[int, int, int, int] = (0,35,35,0)):
   hwnd = wgui.FindWindow(className, windowName)
@@ -78,16 +80,27 @@ def getWindowInfo(windowName: str, className: str or None = None, offset: tuple[
     sleep(.1)
     wapi.PostMessage(hwndChild, wcon.WM_KEYUP, key, keyUp)
 
-  def selectAll():
+  def deleteAll():
     wapi.SendMessage(hwnd, wcon.WM_ACTIVATE, wcon.WA_CLICKACTIVE, 0)
-    wapi.PostMessage(hwndChild, wcon.WM_KEYDOWN, ord("A"), keyDown)
-    wapi.PostMessage(hwndChild, wcon.WM_KEYUP, ord("A"), keyUp)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYDOWN, wcon.VK_BACK, keyDown)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYUP, wcon.VK_BACK, keyUp)
+    sleep(.05)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYDOWN, wcon.VK_BACK, keyDown)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYUP, wcon.VK_BACK, keyUp)
+    sleep(.05)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYDOWN, wcon.VK_BACK, keyDown)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYUP, wcon.VK_BACK, keyUp)
+    sleep(.05)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYDOWN, wcon.VK_BACK, keyDown)
+    wapi.PostMessage(hwndChild, wcon.WM_KEYUP, wcon.VK_BACK, keyUp)
 
   data: CaptureData = CaptureData()
   data.capture = getCapture
   data.click = mouseClick
   data.key = keyPress
-  data.select = selectAll
+  data.delete = deleteAll
   data.size = (w, h)
+  data.hwnd = hwnd
+  data.window_name = windowName
 
   return data
