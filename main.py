@@ -16,6 +16,7 @@ def splitLocations(num: int, max: tuple[int, int] = (600, 600)) -> list[tuple[in
 def main():
 
   database = DataManager()
+  database.start()
   discord = DiscordRunner(database)
   captures: list[CaptureData] = []
   # add list of window names
@@ -39,6 +40,6 @@ def main():
   print(f"time: {runTime} sec with {numCaptures} instances")
   killSwitch[0] = True
   asyncio.run(discord.stop())
-
+  database.stop()
 if __name__ == "__main__":
   main()

@@ -230,8 +230,8 @@ def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendDa
       print(f"<< {name}: at {state} and repeated {count[0]} times with action: {action} Data: {data}")
       prevState[0] = State.Initializing
       return pos.finished
-    if action == Action.Key and data == "escape" and state == State.RecordInfo:
-      sendData(img, pos.current[0], pos.current[1], Icon.alliance in matches)
+    if action == Action.Key and state == State.RecordInfo:
+      sendData(img, pos.current[0] * 2, pos.current[1] * 2, Icon.alliance in matches)
     applyAction(prevState[0], update, captureData, pos, True)
     sleep(Consts.UI_SLEEP)
     if prevState[0] == state and action == prevAction[0] and state != State.Initializing:

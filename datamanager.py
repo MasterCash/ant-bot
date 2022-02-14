@@ -18,6 +18,7 @@ class DataManager:
   idCrop = (331, 211, 407, 232)
   powerCrop = (395, 245, 505, 266)
   allianceCrop = (163, 134, 396, 156)
+  file_name = "db.sqlite"
 
   def __init__(self) -> None:
     self.dataQueue = SimpleQueue()
@@ -25,7 +26,6 @@ class DataManager:
     with con:
       con.execute('''CREATE TABLE IF NOT EXISTS ant_hills
         (id INTEGER PRIMARY KEY NOT NULL,
-        alliance TEXT,
         power INTEGER NOT NULL,
         x INTEGER NOT NULL, y INTEGER NOT NULL,
         time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -35,10 +35,15 @@ class DataManager:
          name TEXT NOT NULL,
          time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
          PRIMARY KEY(id, name))''')
+      con.execute('''CREATE TABLE IF NOT EXISTS id_alliances
+        (id INTEGER NOT NULL REFERENCES ant_hills (id) ON DELETE CASCADE ON UPDATE CASCADE,
+         name TEXT,
+         time TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         PRIMARY KEY(id, name))''')
     con.close()
 
   def getCon(self):
-    return sqlite3.connect("./db.db")
+    return sqlite3.connect(self.file_name)
 
   def addData(self, img, x, y, alliance):
     self.dataQueue.put((img, x, y, alliance))
@@ -52,7 +57,7 @@ class DataManager:
     self.stopped = True
 
   def run(self):
-    while not self.stopped:
+    while not self.stopped or not self.dataQueue.empty():
       try:
         tup = self.dataQueue.get_nowait()
         self.handleText(tup)
@@ -110,11 +115,15 @@ class DataManager:
 
     with con:
       con.execute('''
-      INSERT OR REPLACE INTO ant_hills (id, alliance, power, x, y)
-      VALUES (?, ?, ?, ?, ?)
-      ''',(uid, alliance, power, x, y))
+      INSERT OR REPLACE INTO ant_hills (id, power, x, y)
+      VALUES (?, ?, ?, ?)
+      ''',(uid, power, x, y))
       con.execute('''
       INSERT OR REPLACE INTO id_names (id, name)
       VALUES (?, ?)
       ''', (uid, name))
+      con.execute('''
+       INSERT OR REPLACE INTO id_alliances (id, name)
+       VALUES (?, ?)
+      ''', (uid, alliance))
     con.close()
