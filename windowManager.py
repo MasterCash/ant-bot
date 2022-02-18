@@ -1,11 +1,10 @@
-from threading import Lock
+from multiprocessing import synchronize
 from time import sleep
 from typing import Callable
 import numpy as np
 import win32gui as wgui, win32ui as wui, win32con as wcon, win32api as wapi
 from pygetwindow import Win32Window
 
-lock: Lock = Lock()
 class CaptureData:
   capture: Callable[[], np.ndarray]
   click: Callable[[tuple[int, int]], None]
@@ -15,10 +14,14 @@ class CaptureData:
   hwnd: int
   window_name: str
 
-def getWindowInfo(windowName: str, className: str or None = None, offset: tuple[int, int, int, int] = (0,35,35,0)):
+def findWindow(windowName: str, className:str or None = None):
   hwnd = wgui.FindWindow(className, windowName)
+  return None if not hwnd else hwnd
+
+def getWindowInfo(hwnd: int, lock: synchronize.Lock, offset: tuple[int, int, int, int] = (0,35,35,0)):
   if not hwnd:
     return None
+  windowName = wgui.GetWindowText(hwnd)
   Win32Window(hwnd).size = (575, 1000)
   windowRect = wgui.GetWindowRect(hwnd)
   w = windowRect[2] - windowRect[0]

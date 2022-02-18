@@ -1,12 +1,14 @@
-from threading import Lock, Thread
-from typing import Any, Callable
+from multiprocessing import SimpleQueue
+from multiprocessing.dummy import Process
+from threading import Lock
+from typing import Any
 import cv2 as cv
 import numpy as np
 from time import sleep
 from vision import Vision
 from enum import Enum
 import win32con as wcon
-from windowManager import CaptureData
+from windowManager import CaptureData, getWindowInfo
 
 # lock used to prevent overlapping input
 lock = Lock()
@@ -91,6 +93,10 @@ class Consts:
   MACRO_SLEEP = 2
   ICON_MATCH_THRESHOLD = .8
   MAX_REPEAT = 10
+  NAME_CROP = (162, 96, 395, 121)
+  ID_CROP = (331, 211, 407, 232)
+  POWER_CROP = (395, 245, 505, 266)
+  ALLIANCE_CROP = (163, 134, 396, 156)
 
 def getLeavePoint(windowSize: tuple[int, int]):
   return (windowSize[0] - 10, windowSize[1] - 10)
@@ -207,13 +213,14 @@ def applyAction(prev_state: State, update: tuple[State, Action, Any], cap: Captu
           pos.yUpdated = False
         cap.key(ord("F"))
         sleep(Consts.DATA_SLEEP)
+        #print(f'x: {pos.current[0]}, y: ')
         pos.increment()
         if shouldSleep: sleep(Consts.INPUT_SLEEP)
       case Action.Key:
         cap.key(data)
 
 
-def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendData: Callable[[np.ndarray, int, int, bool], None]):
+def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], dataQueue: SimpleQueue):
   pos = Position((loc[0], loc[1]), (loc[2], loc[3]))
   prevState = [State.Initializing]
   prevAction = [Action.Non]
@@ -226,12 +233,15 @@ def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendDa
     #cv.imshow(f"Test: {name}", img2)
     update = processState(prevState[0], matches, captureData.size)
     state, action, data = update
+    #print(f'prev: {prevState[0]}, cur: {state}')
     if (count[0] > Consts.MAX_REPEAT and state == prevState[0] and action == prevAction[0]) or state == State.Unknown:
       print(f"<< {name}: at {state} and repeated {count[0]} times with action: {action} Data: {data}")
       prevState[0] = State.Initializing
       return pos.finished
     if action == Action.Key and state == State.RecordInfo:
-      sendData(img, pos.current[0] * 2, pos.current[1] * 2, Icon.alliance in matches)
+      p = Process(target=handleText, args=(dataQueue, img, pos.current[0] * 2, pos.current[1] * 2, Icon.alliance in matches))
+      p.start()
+      #handleText(dataQueue, img, pos.current[0] * 2, pos.current[1] * 2, Icon.alliance in matches)
     applyAction(prevState[0], update, captureData, pos, True)
     sleep(Consts.UI_SLEEP)
     if prevState[0] == state and action == prevAction[0] and state != State.Initializing:
@@ -243,13 +253,27 @@ def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], sendDa
 
   return stateUpdate
 
-
-def start(updater: Callable[[], None], id: int, status: list[bool], killSwitch: list[bool]):
-  t = Thread(target=run, args=(updater, id, status, killSwitch))
-  t.start()
-
-def run(updater: Callable[[], None], id: int, status: list[bool], killSwitch: list[bool]):
-  while not (status[id] or all(killSwitch)):
+def run(hwnd: int, captureLock: Lock, loc: tuple[int, int, int, int], dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
+  captureData = getWindowInfo(hwnd, captureLock)
+  updater = handleState(captureData, loc, dataQueue)
+  while not (status[id] or killSwitch.value):
     status[id] = updater()
     #if cv.waitKey(1) == ord("q"):
     #  status[id] = True
+
+def handleText(dataQueue: SimpleQueue, img, x, y, alliance):
+  img = Vision.setGrey(img)
+  nameImg = Vision.crop(img, Consts.NAME_CROP)
+  name = Vision.findText(nameImg)
+  alliance = None
+  if alliance:
+    allianceImg = Vision.crop(img, Consts.ALLIANCE_CROP)
+    alliance = Vision.findText(allianceImg)
+
+  idImg = Vision.crop(img, Consts.ID_CROP)
+  uid = Vision.findText(idImg)
+  powerImg = Vision.crop(img, Consts.POWER_CROP)
+  power = Vision.findText(powerImg)
+  dataQueue.put((uid, name, alliance, power, x, y))
+
+
