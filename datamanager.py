@@ -1,7 +1,7 @@
-from queue import SimpleQueue, Empty
-from threading import Thread
+from queue import  Empty
+from multiprocessing import SimpleQueue
 import sqlite3
-from vision import Vision
+from time import sleep
 
 class Data:
   state: int
@@ -12,16 +12,10 @@ class Data:
   loc: tuple[int, int]
 
 class DataManager:
-  dataQueue: SimpleQueue
-  stopped = True
-  nameCrop = (162, 96, 395, 121)
-  idCrop = (331, 211, 407, 232)
-  powerCrop = (395, 245, 505, 266)
-  allianceCrop = (163, 134, 396, 156)
+
   file_name = "db.sqlite"
 
   def __init__(self) -> None:
-    self.dataQueue = SimpleQueue()
     con = self.getCon()
     with con:
       con.execute('''CREATE TABLE IF NOT EXISTS ant_hills
@@ -45,41 +39,8 @@ class DataManager:
   def getCon(self):
     return sqlite3.connect(self.file_name)
 
-  def addData(self, img, x, y, alliance):
-    self.dataQueue.put((img, x, y, alliance))
 
-  def start(self):
-    self.stopped = False
-    t = Thread(target=self.run)
-    t.start()
 
-  def stop(self):
-    self.stopped = True
-
-  def run(self):
-    while not self.stopped or not self.dataQueue.empty():
-      try:
-        tup = self.dataQueue.get_nowait()
-        self.handleText(tup)
-      except Empty:
-        pass
-  def handleText(self, tup):
-    img, x, y, alliance = tup
-    img = Vision.setGrey(img)
-    nameImg = Vision.crop(img, self.nameCrop)
-    name = Vision.findText(nameImg)
-    alliance = None
-    if alliance:
-      allianceImg = Vision.crop(img, self.allianceCrop)
-      alliance = Vision.findText(allianceImg)
-
-    idImg = Vision.crop(img, self.idCrop)
-    uid = Vision.findText(idImg)
-    powerImg = Vision.crop(img, self.powerCrop)
-    power = Vision.findText(powerImg)
-    power = power
-
-    self.sendData(uid, name, alliance, power, x, y)
 
   def getIdFromName(self, name):
     con = self.getCon()
@@ -130,3 +91,15 @@ class DataManager:
     except:
       print(f'error entering: {uid}, {name}, {alliance}, {power}, {x}, {y}')
     con.close()
+
+def collectData(killswitch, dataQueue: SimpleQueue):
+  database = DataManager()
+  while not (killswitch.value and dataQueue.empty()):
+    try:
+      if not dataQueue.empty():
+        (uid, name, alliance, power, x, y)= dataQueue.get()
+        database.sendData(uid, name, alliance, power, x, y)
+      sleep(5)
+    except Empty:
+      pass
+  dataQueue.close()
