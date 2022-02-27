@@ -14,7 +14,17 @@ class CaptureData:
   hwnd: int
   window_name: str
 
-def findWindow(windowName: str, className:str or None = None):
+  def copy(self, data: 'CaptureData'):
+    self.capture = data.capture
+    self.click = data.click
+    self.size = data.size
+    self.key = data.key
+    self.delete = data.delete
+    self.hwnd = data.hwnd
+    self.window_name = data.window_name
+
+
+def findWindow(windowName: str, className:str or None = None) -> int or None:
   hwnd = wgui.FindWindow(className, windowName)
   return None if not hwnd else hwnd
 
@@ -33,24 +43,26 @@ def getWindowInfo(hwnd: int, lock: synchronize.Lock, offset: tuple[int, int, int
 
   def getCapture():
     # get the window image data
-    lock.acquire()
-    wDC = wgui.GetWindowDC(hwnd)
-    dcObj = wui.CreateDCFromHandle(wDC)
-    cDC = dcObj.CreateCompatibleDC()
-    dataBitMap = wui.CreateBitmap()
-    dataBitMap.CreateCompatibleBitmap(dcObj, w, h)
-    cDC.SelectObject(dataBitMap)
-    cDC.BitBlt((0, 0), (w, h), dcObj, (croppedX, croppedY), wcon.SRCCOPY)
+    try:
+      lock.acquire()
+      wDC = wgui.GetWindowDC(hwnd)
+      dcObj = wui.CreateDCFromHandle(wDC)
+      cDC = dcObj.CreateCompatibleDC()
+      dataBitMap = wui.CreateBitmap()
+      dataBitMap.CreateCompatibleBitmap(dcObj, w, h)
+      cDC.SelectObject(dataBitMap)
+      cDC.BitBlt((0, 0), (w, h), dcObj, (croppedX, croppedY), wcon.SRCCOPY)
 
-    # convert the raw data into a format opencv can read
-    signedIntsArray = dataBitMap.GetBitmapBits(True)
+      # convert the raw data into a format opencv can read
+      signedIntsArray = dataBitMap.GetBitmapBits(True)
 
-    # free resources
-    dcObj.DeleteDC()
-    cDC.DeleteDC()
-    wgui.ReleaseDC(hwnd, wDC)
-    wgui.DeleteObject(dataBitMap.GetHandle())
-    lock.release()
+      # free resources
+      dcObj.DeleteDC()
+      cDC.DeleteDC()
+      wgui.ReleaseDC(hwnd, wDC)
+      wgui.DeleteObject(dataBitMap.GetHandle())
+    finally:
+      lock.release()
 
 
     img = np.fromstring(signedIntsArray, dtype='uint8')

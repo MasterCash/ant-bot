@@ -1,5 +1,6 @@
 from multiprocessing import SimpleQueue
 from multiprocessing.dummy import Process
+import signal
 from threading import Lock
 from typing import Any
 import cv2 as cv
@@ -8,7 +9,7 @@ from time import sleep
 from vision import Vision
 from enum import Enum
 import win32con as wcon
-from windowManager import CaptureData, getWindowInfo
+from windowManager import CaptureData, findWindow, getWindowInfo
 
 # lock used to prevent overlapping input
 lock = Lock()
@@ -233,7 +234,7 @@ def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], dataQu
     #cv.imshow(f"Test: {name}", img2)
     update = processState(prevState[0], matches, captureData.size)
     state, action, data = update
-    #print(f'prev: {prevState[0]}, cur: {state}')
+    #print(f"<< {name}: at {state} with action: {action} Data: {data}")
     if (count[0] > Consts.MAX_REPEAT and state == prevState[0] and action == prevAction[0]) or state == State.Unknown:
       print(f"<< {name}: at {state} and repeated {count[0]} times with action: {action} Data: {data}")
       prevState[0] = State.Initializing
@@ -253,13 +254,28 @@ def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], dataQu
 
   return stateUpdate
 
-def run(hwnd: int, captureLock: Lock, loc: tuple[int, int, int, int], dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
+def run(windowInfo: tuple[str, int], captureLock: Lock, loc: tuple[int, int, int, int], dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
+  def handleSignal(arg1, arg2):
+    killSwitch.value = True
+  signal.signal(signal.SIGINT, handleSignal)
+
+  windowName, hwnd = windowInfo
   captureData = getWindowInfo(hwnd, captureLock)
   updater = handleState(captureData, loc, dataQueue)
   while not (status[id] or killSwitch.value):
-    status[id] = updater()
-    #if cv.waitKey(1) == ord("q"):
-    #  status[id] = True
+    if hwnd == None:
+      sleep(5)
+      hwnd = findWindow(windowName, "Qt5154QWindowOwnDCIcon")
+      if hwnd != None:
+        newCapture = getWindowInfo(hwnd, captureLock)
+        captureData.copy(newCapture)
+      continue
+    try:
+      status[id] = updater()
+    except Exception as ex:
+      print(f' << window {windowName} handling Exception: {type(ex).__name__}, args: {ex.args}')
+      if ex.args[0] == 1400:
+        hwnd = None
 
 def handleText(dataQueue: SimpleQueue, img, x, y, alliance):
   img = Vision.setGrey(img)
@@ -274,5 +290,3 @@ def handleText(dataQueue: SimpleQueue, img, x, y, alliance):
   powerImg = Vision.crop(img, Consts.POWER_CROP)
   power = Vision.findText(powerImg)
   dataQueue.put((uid, name, alliance, power, x, y))
-
-

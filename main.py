@@ -28,13 +28,13 @@ def main():
     killSwitch.value = True
     pass
   dataQueue: SimpleQueue = SimpleQueue()
-  captures: list[CaptureData] = []
+  captures: list[tuple[str, int or None]] = []
   # add list of window names
   for window in ["BlueStacks", "BlueStacks 1","BlueStacks 2", "BlueStacks 3", "BlueStacks 5"]:
-    info = findWindow(window, "Qt5154QWindowOwnDCIcon")
+    hwnd = findWindow(window, "Qt5154QWindowOwnDCIcon")
     # ignore windows we don't find
-    if info != None:
-      captures.append(info)
+    if hwnd != None:
+      captures.append((window, hwnd))
 
   numCaptures = len(captures)
   locs = splitLocations(numCaptures)#, (0,9))
@@ -44,15 +44,15 @@ def main():
   runTime = time()
   procs: list[Process] = []
   killSwitch = Value('b', False)
-  db = Process(target=collectData, args=(killSwitch, dataQueue))
+  signal.signal(signal.SIGINT, handleInterrupt)
+  db = Process(target=collectData, args=(killSwitch, dataQueue), name="database")
   db.start()
   procs.append(db)
   for i in range(numCaptures):
 
-    p = Process(target=run, args=(captures[i], captureLock, locs[i], dataQueue, i, stopped, killSwitch))
+    p = Process(target=run, args=(captures[i], captureLock, locs[i], dataQueue, i, stopped, killSwitch), name=f'runner-{captures[i][0]}')
     p.start()
     procs.append(p)
-  signal.signal(signal.SIGINT, handleInterrupt)
 
   while not (all(stopped) or killSwitch.value):
     sleep(5)
@@ -62,8 +62,10 @@ def main():
   print(f"time: {runTime} sec with {numCaptures} instances")
 
   for p in procs:
+    print(f'process: {p.name} joining...')
     if p.is_alive():
       p.join()
+      print(f'process: {p.name} joined')
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from queue import  Empty
 from multiprocessing import SimpleQueue
+import signal
 import sqlite3
 from time import sleep
 
@@ -93,6 +94,7 @@ class DataManager:
     con.close()
 
 def collectData(killswitch, dataQueue: SimpleQueue):
+  signal.signal(signal.SIGINT, signal.SIG_IGN)
   database = DataManager()
   while not (killswitch.value and dataQueue.empty()):
     try:
