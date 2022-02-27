@@ -30,7 +30,7 @@ def main():
   dataQueue: SimpleQueue = SimpleQueue()
   captures: list[CaptureData] = []
   # add list of window names
-  for window in ["BlueStacks"]: #, "BlueStacks 1","BlueStacks 2", "BlueStacks 3", "BlueStacks 5"]:
+  for window in ["BlueStacks", "BlueStacks 1","BlueStacks 2", "BlueStacks 3", "BlueStacks 5"]:
     info = findWindow(window, "Qt5154QWindowOwnDCIcon")
     # ignore windows we don't find
     if info != None:
@@ -44,7 +44,9 @@ def main():
   runTime = time()
   procs: list[Process] = []
   killSwitch = Value('b', False)
-  procs.append(Process(target=collectData, args=(killSwitch, dataQueue)))
+  db = Process(target=collectData, args=(killSwitch, dataQueue))
+  db.start()
+  procs.append(db)
   for i in range(numCaptures):
 
     p = Process(target=run, args=(captures[i], captureLock, locs[i], dataQueue, i, stopped, killSwitch))

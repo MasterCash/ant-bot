@@ -265,7 +265,6 @@ def handleText(dataQueue: SimpleQueue, img, x, y, alliance):
   img = Vision.setGrey(img)
   nameImg = Vision.crop(img, Consts.NAME_CROP)
   name = Vision.findText(nameImg)
-  alliance = None
   if alliance:
     allianceImg = Vision.crop(img, Consts.ALLIANCE_CROP)
     alliance = Vision.findText(allianceImg)
