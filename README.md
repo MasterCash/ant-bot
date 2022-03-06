@@ -57,6 +57,9 @@ Currently, the main script is setup to look for 4 windows named: "BlueStacks", "
 
 if you wish to add more or if you changed the name of your BlueStack's instance, you will need to update this list to reflect those changes. Any window not found will not be used in running.
 
+## Troubleshooting:
+
+Having the windows display scaling on anything other than 100% will break default images with the computer vision and will need new images taken.
 # Usage
 
 to run: `

@@ -59,14 +59,15 @@ class Vision:
     # given a list of [x, y] positions and a canvas image to draw on, return an image with all
     # of those click points drawn on as crosshairs
     @staticmethod
-    def drawCrosshairs(baseImg, points):
+    def drawCrosshairs(baseImg, points: list[tuple[int, int]]):
         # these colors are actually BGR
-        marker_color = (255, 0, 255)
+        marker_color = (0, 0, 0)
         marker_type = cv.MARKER_CROSS
 
         for (center_x, center_y) in points:
             # draw the center point
             cv.drawMarker(baseImg, (center_x, center_y), marker_color, marker_type)
+            cv.putText(baseImg, f'({center_x}, {center_y})', (center_x, center_y), cv.FONT_HERSHEY_PLAIN, 1.75, marker_color, lineType=cv.LINE_AA)
 
         return baseImg
 
@@ -100,3 +101,12 @@ class Vision:
     @staticmethod
     def crop(img, points):
         return img[points[1]:points[3],points[0]:points[2]]
+
+'''
+(Icon.info, (273, 158, 277, 701)),
+(Icon.search, (157, 235, 80, 666)),
+(Icon.power, (379, 236, 244, 82)),
+(Icon.x, (270, 318, 515, 130)),
+(Icon.coords, (152, 385, 393, 742)),
+(Icon.share, (284, 284, 470, 403)),
+'''

@@ -1,8 +1,7 @@
-from multiprocessing import SimpleQueue
-from multiprocessing.dummy import Process
+from multiprocessing import Process, SimpleQueue
 import signal
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 import cv2 as cv
 import numpy as np
 from time import sleep
@@ -11,51 +10,11 @@ from enum import Enum
 import win32con as wcon
 from windowManager import CaptureData, findWindow, getWindowInfo
 
+Point = tuple[int, int]
+
 # lock used to prevent overlapping input
 lock = Lock()
 
-# position object used to hold start, end, and current position.
-# it also contains whether or not this position has finished
-class Position:
-  current: tuple [int, int]
-  start: tuple[int, int]
-  end: tuple[int, int]
-  yUpdated: bool
-  finished: bool
-
-  def __init__(self, start: tuple[int, int], max: tuple[int, int]) -> None:
-    self.start = start
-    self.end = max
-    self.current = (start[0], start[1])
-    self.yUpdated = True
-    self.finished = False
-
-  def increment(self):
-    x, y = self.current
-    x += 1
-    if x > self.end[0]:
-      x = self.start[0]
-      y += 1
-      self.yUpdated = True
-      if y > self.end[1]:
-        y = self.start[0]
-        self.finished = True
-    self.current = (x, y)
-
-class State(Enum):
-  Initializing = 0
-  InAntHill = 1
-  OnMap = 2
-  SearchPoint = 3
-  RecordInfo = 4
-  Unknown = 5
-  AtLocation = 6
-
-class Action(Enum):
-  Click = "Click"
-  Non = "Non"
-  Key = "Key"
-  Data = "Data"
 class Icon(Enum):
   info = "info"
   search = "search"
@@ -69,12 +28,45 @@ class Icon(Enum):
   rally = "rally"
   ruler = "ruler"
   alliance = "alliance"
+  #loading = "loading"
+
+class States(Enum):
+  Startup = "Startup"
+  InHill = "InHill"
+  OnMap = "OnMap"
+  Unknown = "Unknown"
+  StartSearch = "StartSearch"
+  AtPosition = "AtPosition"
+  NextPosition = "NextPosition"
+  GatherInfo = "GatherInfo"
+  Done = "Done"
+
+class Actions(Enum):
+  Non = "None"
+  Click = "Click"
+  KeyPress = "KeyPress"
+  Wait = "Wait"
+  ChangeState = "StateChange"
+  EnterData = "EnterData"
+  NextPosition = "NextPosition"
+  Collect = "Collect"
+  NewPoint = "NewPoint"
+
+ActionInfo = tuple[Actions, Any]
+Box = tuple[int, int, int, int]
+
+class Prev:
+  state: States = States.Startup
+  action: Actions = Actions.Non
+  curPosition: tuple[bool, Point] = None
+  index: int = 0
+  count: int = 0
 
 class Consts:
   icons: dict[Icon, np.ndarray] = dict([(icon, cv.imread(f'icons/{icon.name}-icon.png', cv.IMREAD_GRAYSCALE)) for icon in Icon])
 
   iconCrops: dict[Icon, tuple[int, int, int, int]] = dict([
-    (Icon.info, (94, 545, 277, 701)),
+    (Icon.info, (0, 0, 509, 701)),
     (Icon.search, (0, 586, 80, 666)),
     (Icon.power, (171, 25, 244, 82)),
     (Icon.x, (456, 59, 515, 130)),
@@ -85,19 +77,60 @@ class Consts:
     (Icon.app, (389, 193, 476, 307)),
     (Icon.rally, (147, 715, 409, 795)),
     (Icon.ruler, (245, 12, 326, 51)),
-    (Icon.alliance, (406, 117, 450, 174))
+    (Icon.alliance, (406, 117, 450, 174)),
+    #(Icon.loading, (0, 0, 509, 701)),
   ])
 
+  clickPoints: dict[int, dict[int, tuple[int, int]]] = dict({
+    0: dict({
+      0: (386, 92),
+      1: (468, 157),
+    }),
+
+    1: dict({
+      0: (272, 150),
+      1: (286, 235),
+      2: (441, 281),
+    }),
+
+    3: dict({
+      2: (213, 431),
+      3: (331, 503),
+      4: (444, 595),
+    }),
+
+    4: dict({
+      3: (213, 595),
+      4: (331, 673),
+    }),
+  })
+
+
+  pointLocations: list[tuple[int, int]] = [
+    (0, 0),
+    (0, 1),
+    (1, 0),
+    (1, 1),
+    (1, 2),
+    (3, 2),
+    (3, 3),
+    (3, 4),
+    (4, 3),
+    (4, 4),
+  ]
+  POINT_OFFSET = (6, 4)
   INPUT_SLEEP = .05
   DATA_SLEEP = .1
   UI_SLEEP = .5
   MACRO_SLEEP = 2
+  LOADING_SLEEP = 5
   ICON_MATCH_THRESHOLD = .8
   MAX_REPEAT = 10
   NAME_CROP = (162, 96, 395, 121)
   ID_CROP = (331, 211, 407, 232)
   POWER_CROP = (395, 245, 505, 266)
   ALLIANCE_CROP = (163, 134, 396, 156)
+
 
 def getLeavePoint(windowSize: tuple[int, int]):
   return (windowSize[0] - 10, windowSize[1] - 10)
@@ -124,169 +157,237 @@ def findIcons(base) -> dict[Icon, tuple[int, int, int, int]]:
       matches[type] = found[1]
   return matches
 
-def processState(state: State, matches: dict[Icon, tuple[int, int, int, int]], windowSize: tuple[int, int]) -> tuple[State, Action, Any]:
-  if Icon.app in matches:
-    return (State.Initializing, Action.Click, Vision.getClickPoint(matches[Icon.app]))
-  match state:
-    case State.Initializing:
+def clickPoint(point: Box) -> Point:
+  return Vision.getClickPoint(point)
+
+def relativePoint(prev: Prev):
+  x, y = prev.curPosition[1]
+  offX, offY = Consts.pointLocations[prev.index]
+  return (x + offX, y + offY)
+
+def indexPoint(index: int):
+  point = Consts.pointLocations[index]
+  return Consts.clickPoints[point[0]][point[1]] #Consts.clickPoints[point[0]][point[1]]
+
+def posStr(prev: Prev) -> tuple[str, str]:
+  posType, pos = prev.curPosition
+  x = pos[0]
+  y = pos[1]
+
+  if posType:
+    offX, offY = Consts.POINT_OFFSET
+    x += offX
+    y += offY
+
+  return (str(x), str(y))
+
+
+def processState(prev: Prev, matches: dict[Icon, Box], windowSize: Point) -> ActionInfo:
+
+  match prev.state:
+    case States.Startup:
+      if Icon.app in matches:
+        return (Actions.Click, clickPoint(matches[Icon.app]))
       if Icon.x in matches:
-        point = Vision.getClickPoint(matches[Icon.x])
-        return (state, Action.Click, point)
+        if prev.action != Actions.Click:
+          return (Actions.Click, clickPoint(matches[Icon.x]))
+      if Icon.loading in matches:
+        return (Actions.Wait, Consts.LOADING_SLEEP)
       if Icon.power in matches:
-        if Icon.search in matches:
-          return (State.OnMap, Action.Non, None)
-        return (State.InAntHill, Action.Non, None)
+        return (Actions.ChangeState, States.InHill)
 
-    case State.InAntHill:
-      if Icon.power in matches:
-        if Icon.search in matches:
-          return (State.OnMap, Action.Non, None)
-        return(state, Action.Click, getLeavePoint(windowSize))
-
-    case State.OnMap:
+    case States.InHill:
       if Icon.search in matches:
-        return (state, Action.Key, wcon.VK_TAB)
-      if Icon.coords in matches:
-        return (State.SearchPoint, Action.Non, None)
+        return (Actions.ChangeState, States.OnMap)
       if Icon.power in matches:
-        return (State.InAntHill, Action.Non, None)
-      return (state, Action.Key, wcon.VK_SPACE)
+        if prev.action != Actions.Click:
+          return (ActionInfo.Click, getLeavePoint(windowSize))
+      if prev.action != Actions.Wait:
+        return (Actions.Wait, Consts.LOADING_SLEEP)
+      return (Actions.ChangeState, States.Unknown)
 
-    case State.SearchPoint:
+    case States.OnMap:
       if Icon.coords in matches:
-        return (state, Action.Data, None)
-      if Icon.power in matches:
-        return (State.AtLocation, Action.Non, None)
-      #return (State.Unknown, Action.Non, None)
+        return (Actions.ChangeState, States.StartSearch)
+      if Icon.search in matches:
+        if prev.action != Actions.KeyPress:
+          return (Actions.KeyPress, wcon.VK_TAB)
+      if Icon.power not in matches and prev.action is Actions.KeyPress:
+        return (Actions.KeyPress, wcon.VK_SPACE)
 
-    case State.AtLocation:
+    case States.StartSearch:
+      if Icon.coords in matches:
+        return (Actions.EnterData, None)
+      if Icon.search in matches:
+        return (Actions.ChangeState, States.AtPosition)
+      return (Actions.ChangeState, States.Unknown)
+
+    case States.AtPosition:
+      if Icon.ruler in matches:
+        return (Actions.ChangeState, States.GatherInfo)
       if Icon.info in matches:
-        point = Vision.getClickPoint(matches[Icon.info])
-        return (state, Action.Click, point)
+        if prev.action != Actions.Click:
+          return (Actions.Click, clickPoint[Icon.info])
+      else:
+        if prev.action != Actions.Click:
+          if prev.curPosition[0]:
+            return (Actions.Click, indexPoint(prev.index))
+          else:
+            return (Actions.Click, getCenterPoint(windowSize))
+        else:
+          return (Actions.Wait, Consts.UI_SLEEP)
+
+    case States.GatherInfo:
       if Icon.ruler in matches:
-        return (State.RecordInfo, Action.Non, None)
-      if Icon.creatureSearch in matches or Icon.creatureAttack in matches or Icon.rally in matches:
-        return (State.OnMap, Action.Key, wcon.VK_ESCAPE)
-      if Icon.share in matches:
-        return (State.OnMap, Action.Non, None)
+        if prev.action == Actions.Collect:
+          return (Actions.KeyPress, wcon.VK_ESCAPE)
+        else:
+          return (Actions.Collect, relativePoint(prev))
       if Icon.search in matches:
-        return (state, Action.Click, getCenterPoint(windowSize))
+        return (Actions.ChangeState, States.NextPosition)
 
-    case State.RecordInfo:
-      if Icon.ruler in matches:
-        return (state, Action.Key,wcon.VK_ESCAPE)
-      if Icon.power in matches:
-        return (State.OnMap, Action.Non, None)
+    case States.NextPosition:
+      if prev.curPosition is not None:
+        if (prev.curPosition[0] and prev.index == len(Consts.pointLocations)) or not prev.curPosition[0]:
+          return (Actions.NewPoint, None)
+        if prev.action == Actions.NextPosition:
+          return (Actions.ChangeState, States.AtPosition)
+        return (Actions.NextPosition, None)
+      return (Actions.ChangeState, States.Done)
 
-  return (state, Action.Non, None)
+  if Icon.app in matches:
+    return (Actions.ChangeState, States.Startup)
 
-def applyAction(prev_state: State, update: tuple[State, Action, Any], cap: CaptureData, pos: Position, shouldSleep: bool):
-  state, action, data = update
-  if (prev_state == State.InAntHill or prev_state == State.Initializing) and state == State.OnMap:
-    pos.yUpdated = True
-  if action is not None:
-    match action:
-      case Action.Click:
-        cap.click(data)
-        if shouldSleep: sleep(Consts.INPUT_SLEEP)
-      case Action.Data:
-        cap.key(ord("X"))
+  return (Actions.Non, None)
+
+def applyAction(prev: Prev, update: ActionInfo, cap: CaptureData, posQueue: SimpleQueue, dataQueue: SimpleQueue, img: np.ndarray, matches: dict[Icon, Box]) -> None:
+  action, data = update
+  match action:
+    case Actions.Non:
+      pass
+
+    case Actions.Click:
+      cap.click(data)
+
+    case Actions.KeyPress:
+      cap.key(data)
+
+    case Actions.Wait:
+      sleep(data)
+
+    case Actions.ChangeState:
+      prev.state = data
+      prev.action = action
+
+    case Actions.EnterData:
+      x, y = posStr(prev)
+      cap.key(ord('X'))
+      sleep(Consts.DATA_SLEEP)
+      cap.delete()
+      sleep(Consts.DATA_SLEEP)
+
+      # X coord
+      for char in x:
+        cap.key(ord(char))
         sleep(Consts.DATA_SLEEP)
-        cap.delete()
-        sleep(Consts.DATA_SLEEP)
-        x = str(pos.current[0] * 2)
-        for num in x:
-          cap.key(ord(num))
-          sleep(Consts.DATA_SLEEP)
-        cap.key(wcon.VK_RETURN)
-        sleep(Consts.DATA_SLEEP)
-        if pos.yUpdated:
-          cap.key(ord("Y"))
-          sleep(Consts.DATA_SLEEP)
-          cap.delete()
-          sleep(Consts.DATA_SLEEP)
-          y = str(pos.current[1] * 2)
-          for num in y:
-            cap.key(ord(num))
-            sleep(Consts.DATA_SLEEP)
-          cap.key(wcon.VK_RETURN)
-          sleep(Consts.DATA_SLEEP)
-          pos.yUpdated = False
-        cap.key(ord("F"))
-        sleep(Consts.DATA_SLEEP)
-        #print(f'x: {pos.current[0]}, y: ')
-        pos.increment()
-        if shouldSleep: sleep(Consts.INPUT_SLEEP)
-      case Action.Key:
-        cap.key(data)
+      cap.key(wcon.VK_RETURN)
+      sleep(Consts.DATA_SLEEP)
 
+      # Y coord
+      for char in y:
+        cap.key(ord(char))
+        sleep(Consts.DATA_SLEEP)
+      cap.key(wcon.VK_RETURN)
+      sleep(Consts.DATA_SLEEP)
 
-def handleState(captureData: CaptureData, loc: tuple[int, int, int, int], dataQueue: SimpleQueue):
-  pos = Position((loc[0], loc[1]), (loc[2], loc[3]))
-  prevState = [State.Initializing]
-  prevAction = [Action.Non]
-  count = [0]
+      cap.key(ord("F"))
+      sleep(Consts.DATA_SLEEP)
+
+    case Actions.NextPosition:
+      prev.index += 1
+
+    case Actions.Collect:
+      p = Process(target=handleText, args=(dataQueue, img, data, Icon.alliance in matches))
+      p.start()
+
+    case Actions.NewPoint:
+      if posQueue.empty():
+        prev.curPosition = None
+        prev.index = 0
+      else:
+        prev.curPosition = posQueue.get()
+        prev.index = 0
+
+def handleState(captureData: CaptureData, positions: SimpleQueue[tuple[bool, Point]], dataQueue: SimpleQueue):
+  prev: Prev = Prev()
   name = captureData.window_name
-  def stateUpdate():
+  if not positions.empty():
+    prev.curPosition = positions.get()
+
+  def updateState() -> bool:
     img = captureData.capture()
     matches = findIcons(img)
-    #img2 = Vision.drawRectangles(img.copy(), list(matches.values()))
-    #cv.imshow(f"Test: {name}", img2)
-    update = processState(prevState[0], matches, captureData.size)
-    state, action, data = update
-    #print(f"<< {name}: at {state} with action: {action} Data: {data}")
-    if (count[0] > Consts.MAX_REPEAT and state == prevState[0] and action == prevAction[0]) or state == State.Unknown:
-      print(f"<< {name}: at {state} and repeated {count[0]} times with action: {action} Data: {data}")
-      prevState[0] = State.Initializing
-      return pos.finished
-    if action == Action.Key and state == State.RecordInfo:
-      p = Process(target=handleText, args=(dataQueue, img, pos.current[0] * 2, pos.current[1] * 2, Icon.alliance in matches))
-      p.start()
-      #handleText(dataQueue, img, pos.current[0] * 2, pos.current[1] * 2, Icon.alliance in matches)
-    applyAction(prevState[0], update, captureData, pos, True)
-    sleep(Consts.UI_SLEEP)
-    if prevState[0] == state and action == prevAction[0] and state != State.Initializing:
-      count[0] += 1
-    else: count[0] = 0
-    prevState[0] = state
-    prevAction[0] = action
-    return pos.finished
+    actionInfo = processState(prev.state, prev.action, matches, captureData.size)
+    action, data = actionInfo
+    print(f"<< {name}: at {prev.state} with action: {action} Data: {data}")
 
-  return stateUpdate
+    if action == prev.action:
+      prev.count += 1
+    else:
+      prev.count = 0
+    if prev.count >= Consts.MAX_REPEAT:
+      print(f" << {name} hit repeat threshold on state {prev.state}.")
+      print(f" << << state: {prev.state}")
+      print(f" << << action: {prev.action}")
+      print(f" << << pos: {prev.curPosition}")
+      print(f" << << index: {prev.index}")
+      print(f" << << nextAction: {actionInfo}")
+      print(f" << << matches: {matches}")
+      prev.state = States.Startup
+      prev.action = Actions.ChangeState
+    else:
+      applyAction(prev, actionInfo, captureData, positions, dataQueue, img, matches)
 
-def run(windowInfo: tuple[str, int], captureLock: Lock, loc: tuple[int, int, int, int], dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
-  def handleSignal(arg1, arg2):
-    killSwitch.value = True
-  signal.signal(signal.SIGINT, handleSignal)
+    return prev.curPosition is not None
+
+
+  return updateState
+
+def run(windowInfo: tuple[str, int], captureLock: Lock, positions: SimpleQueue[tuple[bool, Point]], dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
+  signal.signal(signal.SIGINT, signal.SIG_IGN)
 
   windowName, hwnd = windowInfo
   captureData = getWindowInfo(hwnd, captureLock)
-  updater = handleState(captureData, loc, dataQueue)
-  while not (status[id] or killSwitch.value):
+  updater = handleState(captureData, positions, dataQueue)
+  while not(status[id] or killSwitch.value):
     if hwnd == None:
       sleep(5)
       hwnd = findWindow(windowName, "Qt5154QWindowOwnDCIcon")
       if hwnd != None:
-        newCapture = getWindowInfo(hwnd, captureLock)
-        captureData.copy(newCapture)
-      continue
+        captureData.copy(getWindowInfo(hwnd, captureLock))
+        continue
     try:
       status[id] = updater()
     except Exception as ex:
-      print(f' << window {windowName} handling Exception: {type(ex).__name__}, args: {ex.args}')
+      print(f" << window {windowName} handling Exception: {type(ex).__name__}, args: {ex.args}")
       if ex.args[0] == 1400:
         hwnd = None
 
-def handleText(dataQueue: SimpleQueue, img, x, y, alliance):
+
+def handleText(dataQueue: SimpleQueue, img: np.ndarray, point: Point, hasAlliance: bool) -> None:
   img = Vision.setGrey(img)
   nameImg = Vision.crop(img, Consts.NAME_CROP)
   name = Vision.findText(nameImg)
-  if alliance:
+  alliance: str = None
+  if hasAlliance:
     allianceImg = Vision.crop(img, Consts.ALLIANCE_CROP)
     alliance = Vision.findText(allianceImg)
+    if alliance is not None:
+      alliance[0] = '['
+      alliance[3] = ']'
 
   idImg = Vision.crop(img, Consts.ID_CROP)
   uid = Vision.findText(idImg)
   powerImg = Vision.crop(img, Consts.POWER_CROP)
   power = Vision.findText(powerImg)
-  dataQueue.put((uid, name, alliance, power, x, y))
+  dataQueue.put((uid, name, alliance, power, point[0], point[1]))

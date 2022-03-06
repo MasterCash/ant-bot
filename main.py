@@ -1,21 +1,10 @@
-from numpy import maximum
-from bot import handleState, run
+from bot import run
 from time import sleep, time
-from datamanager import DataManager, collectData
-from windowManager import CaptureData, findWindow, getWindowInfo
+from datamanager import collectData
+from windowManager import findWindow
 from multiprocessing import Lock, Process, SimpleQueue, Value, Array
 import signal
-
-def splitLocations(num: int, max: tuple[int, int] = (600, 600)) -> list[tuple[int, int, int, int]]:
-  if num == 0:
-    return [(0, 0, max[0], max[1])]
-  chunk = getMax(int((max[0] + 1) / num), 1)
-  extra = (max[0] - (num * chunk)) + 1
-  locs = [(chunk * i, 0, (chunk * (i+1)) -1, max[1]) for i in range(num)]
-  x1, y1, x2, y2 = locs[num -1]
-  locs[num -1] = (x1, y1, x2 + extra, y2)
-  return locs
-
+from pointCollection import getClusters
 
 captureLock = Lock()
 
@@ -37,9 +26,13 @@ def main():
       captures.append((window, hwnd))
 
   numCaptures = len(captures)
-  locs = splitLocations(numCaptures)#, (0,9))
-  print(locs)
   stopped = Array('b',[False for _ in range(numCaptures)])
+  positions: SimpleQueue[tuple[bool, tuple[int, int]]] = SimpleQueue()
+  clusters, singles = getClusters()
+  for cluster in clusters:
+    positions.put((True, cluster))
+  for single in singles:
+    positions.put((False, single))
 
   runTime = time()
   procs: list[Process] = []
@@ -48,9 +41,9 @@ def main():
   db = Process(target=collectData, args=(killSwitch, dataQueue), name="database")
   db.start()
   procs.append(db)
-  for i in range(numCaptures):
 
-    p = Process(target=run, args=(captures[i], captureLock, locs[i], dataQueue, i, stopped, killSwitch), name=f'runner-{captures[i][0]}')
+  for i in range(numCaptures):
+    p = Process(target=run, args=(captures[i], captureLock, positions, dataQueue, i, stopped, killSwitch), name=f'runner-{captures[i][0]}')
     p.start()
     procs.append(p)
 

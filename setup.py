@@ -1,26 +1,26 @@
+from distutils.util import strtobool
 from enum import Enum
+from multiprocessing import Lock
 import sys
 import cv2 as cv
-from windowManager import getWindowInfo
+from windowManager import findWindow, getWindowInfo
 from vision import Vision
 from bot import Consts, findIcons
-from datamanager import DataManager
+
 class DataCrop(Enum):
   name = "name"
   id = "id"
   power = "power"
   alliance = "alliance"
 
-
-
-def main(window_name: str or None = None):
+def main(window_name: str or None = None, crosshair: bool = False):
   if window_name == None: window_name = "BlueStacks"
   ctrl_name = f"Controls: {window_name}"
   iconCrops = dict([
-    (DataCrop.name,DataManager.nameCrop),
-    (DataCrop.id,DataManager.idCrop),
-    (DataCrop.power,DataManager.powerCrop),
-    (DataCrop.alliance,DataManager.allianceCrop),
+    (DataCrop.name, Consts.NAME_CROP),
+    (DataCrop.id, Consts.ID_CROP),
+    (DataCrop.power, Consts.POWER_CROP),
+    (DataCrop.alliance, Consts.ALLIANCE_CROP),
   ])
 
   iconCrops = Consts.iconCrops.copy()
@@ -40,14 +40,16 @@ def main(window_name: str or None = None):
     x1, y1, x2, _ = iconCrops[curIcon[0]]
     iconCrops[curIcon[0]] = (x1, y1, x2, y2)
 
-  capture = getWindowInfo(window_name, "Qt5154QWindowOwnDCIcon")
+  hwnd = findWindow(window_name, "Qt5154QWindowOwnDCIcon")
+  capture = getWindowInfo(hwnd, Lock())
   def iconChange(pos):
     curIcon[0] = keys[pos]
     x1, y1, x2, y2 = iconCrops[curIcon[0]]
     cv.setTrackbarPos("x1", ctrl_name, x1)
-    cv.setTrackbarPos("x2", ctrl_name, x2)
     cv.setTrackbarPos("y1", ctrl_name, y1)
-    cv.setTrackbarPos("y2", ctrl_name, y2)
+    if not crosshair:
+      cv.setTrackbarPos("x2", ctrl_name, x2)
+      cv.setTrackbarPos("y2", ctrl_name, y2)
 
   stopped = False
   cv.namedWindow(ctrl_name, cv.WINDOW_GUI_EXPANDED)
@@ -56,12 +58,16 @@ def main(window_name: str or None = None):
   cv.createTrackbar("icon", ctrl_name, 0, len(keys) - 1, iconChange)
   cv.createTrackbar("x1", ctrl_name, x1, capture.size[0], updateX1)
   cv.createTrackbar("y1", ctrl_name, y1, capture.size[1], updateY1)
-  cv.createTrackbar("x2", ctrl_name, x2, capture.size[0], updateX2)
-  cv.createTrackbar("y2", ctrl_name, y2, capture.size[1], updateY2)
+  if not crosshair:
+    cv.createTrackbar("x2", ctrl_name, x2, capture.size[0], updateX2)
+    cv.createTrackbar("y2", ctrl_name, y2, capture.size[1], updateY2)
 
   while not stopped:
     img = capture.capture()
-    img2 = Vision.drawCoordinates(img.copy(), [iconCrops[curIcon[0]]], [curIcon[0].name])
+    if crosshair:
+      img2 = Vision.drawCrosshairs(img.copy(), [(iconCrops[curIcon[0]][0], iconCrops[curIcon[0]][1])])
+    else:
+      img2 = Vision.drawCoordinates(img.copy(), [iconCrops[curIcon[0]]], [curIcon[0].name])
     matches = findIcons(img)
     img2 = Vision.drawRectangles(img2, list(matches.values()))
 
@@ -82,6 +88,14 @@ def main(window_name: str or None = None):
 
 if __name__ == "__main__":
   if len(sys.argv) > 1:
-    main(sys.argv[1])
+
+    try:
+      val = strtobool(sys.argv[1])
+      main(None, bool(val))
+    except ValueError:
+      if len(sys.argv) > 2:
+        main(sys.argv[1], sys.argv[2])
+      else:
+        main(sys.argv[1])
   else:
     main()
