@@ -12,7 +12,7 @@ def getMax(x1, x2) -> int:
   return x1 if x1 > x2 else x2
 
 def fillQueue(killSwitch, queue: SimpleQueue):
-  clusters, singles = getClusters(8, 10)
+  clusters, singles = getClusters()
   for cluster in clusters:
     if killSwitch.value:
       return

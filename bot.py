@@ -151,13 +151,6 @@ def getLeavePoint(windowSize: tuple[int, int]):
 def getCenterPoint(windowSize: tuple[int, int]):
   return (windowSize[0] / 2, windowSize[1] / 2)
 
-def getOffPoint(prev: Prev):
-  cur = relativePoint(prev)
-
-  if cur[0] > 400:
-    return Consts.clickPoints[0][0]
-  return Consts.clickPoints[4][4]
-
 def confirmIcon(img, icon, type) -> tuple[bool, tuple[int, int] | None]:
     base = Vision.setGrey(img.copy())
     base = Vision.crop(base, Consts.iconCrops[type])
@@ -182,23 +175,22 @@ def clickPoint(point: Box) -> Point:
 
 def relativePoint(prev: Prev):
   x, y = prev.curPosition[1]
-  offX, offY = Consts.pointLocations[prev.index]
-  return (x + offX, y + offY)
+  if prev.curPosition[0]:
+    offX, offY = Consts.pointLocations[prev.index]
+    x += offX
+    y += offY
+  return (x * 2, y * 2)
 
 def indexPoint(index: int):
   point = Consts.pointLocations[index]
   return Consts.clickPoints[point[0]][point[1]]
 
 def posStr(prev: Prev) -> tuple[str, str]:
-  posType, pos = prev.curPosition
-  x = pos[0]
-  y = pos[1]
-
-  if posType:
+  x, y = relativePoint(prev)
+  if prev.curPosition[0]:
     offX, offY = Consts.POINT_OFFSET
     x += offX
     y += offY
-
   return (str(x), str(y))
 
 
@@ -209,12 +201,16 @@ def processState(prev: Prev, matches: dict[Icon, Box], windowSize: Point) -> Act
       if Icon.app in matches:
         return (Actions.Click, clickPoint(matches[Icon.app]))
       elif Icon.x in matches:
-        if prev.action != Actions.Click:
+        if prev.action != Actions.Click and prev.action != Actions.Wait:
           return (Actions.Click, clickPoint(matches[Icon.x]))
+        elif prev.action != Actions.Wait:
+          return (Actions.Wait, Consts.UI_SLEEP)
       elif Icon.loading in matches:
         return (Actions.Wait, Consts.LOADING_SLEEP)
       elif Icon.power in matches:
         return (Actions.ChangeState, States.InHill)
+      elif prev.action == Actions.Click:
+        return (Actions.Wait, Consts.LOADING_SLEEP)
 
     case States.InHill:
       if Icon.search in matches:
@@ -235,7 +231,7 @@ def processState(prev: Prev, matches: dict[Icon, Box], windowSize: Point) -> Act
         elif prev.action != Actions.Wait:
           return (Actions.Wait, Consts.UI_SLEEP)
         return (Actions.Non, None)
-      elif Icon.power not in matches and prev.action is Actions.KeyPress:
+      elif Icon.power not in matches and (prev.action is Actions.KeyPress or prev.action is Actions.Wait):
         return (Actions.KeyPress, wcon.VK_SPACE)
 
     case States.StartSearch:
@@ -384,7 +380,7 @@ def handleState(captureData: CaptureData, positions: SimpleQueue, dataQueue: Sim
     #cv.imshow(f"Test: {name}", img2)
     actionInfo = processState(prev, matches, captureData.size)
     action, data = actionInfo
-    print(f"{name}: at {prev.state} with action: {action} Data: {data}")
+    #print(f"{name}: at {prev.state} with action: {action} Data: {data}")
 
 
     if action == prev.action:
@@ -444,8 +440,7 @@ def handleText(dataQueue: SimpleQueue, img: np.ndarray, point: Point, hasAllianc
     allianceImg = Vision.crop(img, Consts.ALLIANCE_CROP)
     alliance = Vision.findText(allianceImg)
     if alliance is not None:
-      alliance[0] = '['
-      alliance[3] = ']'
+      alliance = '[' + alliance[1:3] + ']' + alliance[4:]
 
   idImg = Vision.crop(img, Consts.ID_CROP)
   uid = Vision.findText(idImg)
