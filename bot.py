@@ -28,7 +28,7 @@ class Icon(Enum):
   rally = "rally"
   ruler = "ruler"
   alliance = "alliance"
-  #loading = "loading"
+  loading = "loading"
 
 class States(Enum):
   Startup = "Startup"
@@ -61,12 +61,14 @@ class Prev:
   curPosition: tuple[bool, Point] = None
   index: int = 0
   count: int = 0
+  def __init__(self) -> None:
+      pass
 
 class Consts:
   icons: dict[Icon, np.ndarray] = dict([(icon, cv.imread(f'icons/{icon.name}-icon.png', cv.IMREAD_GRAYSCALE)) for icon in Icon])
 
   iconCrops: dict[Icon, tuple[int, int, int, int]] = dict([
-    (Icon.info, (0, 0, 509, 701)),
+    (Icon.info, (0, 0, 540, 830)),
     (Icon.search, (0, 586, 80, 666)),
     (Icon.power, (171, 25, 244, 82)),
     (Icon.x, (456, 59, 515, 130)),
@@ -78,19 +80,26 @@ class Consts:
     (Icon.rally, (147, 715, 409, 795)),
     (Icon.ruler, (245, 12, 326, 51)),
     (Icon.alliance, (406, 117, 450, 174)),
-    #(Icon.loading, (0, 0, 509, 701)),
+    (Icon.loading, (50, 670, 476, 840)),
   ])
 
   clickPoints: dict[int, dict[int, tuple[int, int]]] = dict({
     0: dict({
       0: (386, 92),
-      1: (468, 157),
+      1: (464, 157),
     }),
 
     1: dict({
       0: (272, 150),
       1: (286, 235),
       2: (441, 281),
+    }),
+
+    2: dict({
+      0: (154, 235),
+      1: (272, 314),
+      2: (323, 353),
+      3: (437, 431),
     }),
 
     3: dict({
@@ -112,6 +121,10 @@ class Consts:
     (1, 0),
     (1, 1),
     (1, 2),
+    (2, 0),
+    (2, 1),
+    (2, 2),
+    (2, 3),
     (3, 2),
     (3, 3),
     (3, 4),
@@ -122,7 +135,7 @@ class Consts:
   INPUT_SLEEP = .05
   DATA_SLEEP = .1
   UI_SLEEP = .5
-  MACRO_SLEEP = 2
+  SCREEN_SLEEP = 2
   LOADING_SLEEP = 5
   ICON_MATCH_THRESHOLD = .8
   MAX_REPEAT = 10
@@ -137,6 +150,13 @@ def getLeavePoint(windowSize: tuple[int, int]):
 
 def getCenterPoint(windowSize: tuple[int, int]):
   return (windowSize[0] / 2, windowSize[1] / 2)
+
+def getOffPoint(prev: Prev):
+  cur = relativePoint(prev)
+
+  if cur[0] > 400:
+    return Consts.clickPoints[0][0]
+  return Consts.clickPoints[4][4]
 
 def confirmIcon(img, icon, type) -> tuple[bool, tuple[int, int] | None]:
     base = Vision.setGrey(img.copy())
@@ -167,7 +187,7 @@ def relativePoint(prev: Prev):
 
 def indexPoint(index: int):
   point = Consts.pointLocations[index]
-  return Consts.clickPoints[point[0]][point[1]] #Consts.clickPoints[point[0]][point[1]]
+  return Consts.clickPoints[point[0]][point[1]]
 
 def posStr(prev: Prev) -> tuple[str, str]:
   posType, pos = prev.curPosition
@@ -188,72 +208,105 @@ def processState(prev: Prev, matches: dict[Icon, Box], windowSize: Point) -> Act
     case States.Startup:
       if Icon.app in matches:
         return (Actions.Click, clickPoint(matches[Icon.app]))
-      if Icon.x in matches:
+      elif Icon.x in matches:
         if prev.action != Actions.Click:
           return (Actions.Click, clickPoint(matches[Icon.x]))
-      if Icon.loading in matches:
+      elif Icon.loading in matches:
         return (Actions.Wait, Consts.LOADING_SLEEP)
-      if Icon.power in matches:
+      elif Icon.power in matches:
         return (Actions.ChangeState, States.InHill)
 
     case States.InHill:
       if Icon.search in matches:
         return (Actions.ChangeState, States.OnMap)
-      if Icon.power in matches:
+      elif Icon.power in matches:
         if prev.action != Actions.Click:
-          return (ActionInfo.Click, getLeavePoint(windowSize))
-      if prev.action != Actions.Wait:
+          return (Actions.Click, getLeavePoint(windowSize))
+      elif prev.action != Actions.Wait:
         return (Actions.Wait, Consts.LOADING_SLEEP)
       return (Actions.ChangeState, States.Unknown)
 
     case States.OnMap:
       if Icon.coords in matches:
         return (Actions.ChangeState, States.StartSearch)
-      if Icon.search in matches:
-        if prev.action != Actions.KeyPress:
+      elif Icon.search in matches:
+        if prev.action != Actions.KeyPress and prev.action != Actions.Wait:
           return (Actions.KeyPress, wcon.VK_TAB)
-      if Icon.power not in matches and prev.action is Actions.KeyPress:
+        elif prev.action != Actions.Wait:
+          return (Actions.Wait, Consts.UI_SLEEP)
+        return (Actions.Non, None)
+      elif Icon.power not in matches and prev.action is Actions.KeyPress:
         return (Actions.KeyPress, wcon.VK_SPACE)
 
     case States.StartSearch:
       if Icon.coords in matches:
-        return (Actions.EnterData, None)
-      if Icon.search in matches:
+        if prev.action != Actions.EnterData and prev.action != Actions.Wait:
+          return (Actions.EnterData, None)
+        elif prev.action != Actions.Wait:
+          return (Actions.Wait, Consts.SCREEN_SLEEP)
+        return (Actions.Non, None)
+      elif Icon.search in matches:
         return (Actions.ChangeState, States.AtPosition)
       return (Actions.ChangeState, States.Unknown)
 
     case States.AtPosition:
       if Icon.ruler in matches:
         return (Actions.ChangeState, States.GatherInfo)
-      if Icon.info in matches:
-        if prev.action != Actions.Click:
-          return (Actions.Click, clickPoint[Icon.info])
+      elif Icon.info in matches:
+        if prev.action != Actions.Click and prev.action != Actions.Wait:
+          return (Actions.Click, clickPoint(matches[Icon.info]))
+        elif prev.action != Actions.Wait:
+          return (Actions.Wait, Consts.UI_SLEEP)
+        return (Actions.Non, None)
+      elif any([icon in matches for icon in [Icon.creatureAttack, Icon.creatureSearch, Icon.rally]]):
+        if prev.action != Actions.KeyPress:
+          return (Actions.ChangeState, States.NextPosition)
       else:
-        if prev.action != Actions.Click:
+        if prev.action != Actions.Click and prev.action != Actions.Wait:
           if prev.curPosition[0]:
             return (Actions.Click, indexPoint(prev.index))
           else:
             return (Actions.Click, getCenterPoint(windowSize))
-        else:
+        elif prev.action != Actions.Wait:
           return (Actions.Wait, Consts.UI_SLEEP)
+        else:
+          return (Actions.ChangeState, States.NextPosition)
 
     case States.GatherInfo:
       if Icon.ruler in matches:
         if prev.action == Actions.Collect:
           return (Actions.KeyPress, wcon.VK_ESCAPE)
-        else:
+        elif prev.action != Actions.KeyPress:
           return (Actions.Collect, relativePoint(prev))
-      if Icon.search in matches:
+        return (Actions.Wait, Consts.UI_SLEEP)
+      elif Icon.search in matches:
         return (Actions.ChangeState, States.NextPosition)
 
     case States.NextPosition:
-      if prev.curPosition is not None:
-        if (prev.curPosition[0] and prev.index == len(Consts.pointLocations)) or not prev.curPosition[0]:
+      if any([icon in matches for icon in [Icon.creatureAttack, Icon.creatureSearch, Icon.rally]]):
+        if prev.action == Actions.ChangeState:
+          return (Actions.KeyPress, wcon.VK_ESCAPE)
+      elif prev.curPosition is not None:
+        if prev.curPosition[0]:
+          if prev.action == Actions.ChangeState:
+            return (Actions.KeyPress, wcon.VK_TAB)
+          elif prev.action == Actions.KeyPress:
+            return (Actions.Wait, Consts.UI_SLEEP)
+          elif (prev.index == len(Consts.pointLocations)):
+            return (Actions.NewPoint, None)
+          elif Icon.coords in matches:
+            return (Actions.KeyPress, wcon.VK_ESCAPE)
+          elif prev.action == Actions.NextPosition:
+            return (Actions.ChangeState, States.AtPosition)
+          elif prev.action == Actions.NewPoint:
+            return (Actions.ChangeState, States.OnMap)
+          return (Actions.NextPosition, prev.index)
+        else:
+          if prev.action == Actions.NewPoint:
+            return (Actions.ChangeState, States.OnMap)
           return (Actions.NewPoint, None)
-        if prev.action == Actions.NextPosition:
-          return (Actions.ChangeState, States.AtPosition)
-        return (Actions.NextPosition, None)
-      return (Actions.ChangeState, States.Done)
+      else:
+        return (Actions.ChangeState, States.Done)
 
   if Icon.app in matches:
     return (Actions.ChangeState, States.Startup)
@@ -281,22 +334,22 @@ def applyAction(prev: Prev, update: ActionInfo, cap: CaptureData, posQueue: Simp
 
     case Actions.EnterData:
       x, y = posStr(prev)
+      # X coord
       cap.key(ord('X'))
       sleep(Consts.DATA_SLEEP)
       cap.delete()
-      sleep(Consts.DATA_SLEEP)
-
-      # X coord
       for char in x:
         cap.key(ord(char))
-        sleep(Consts.DATA_SLEEP)
       cap.key(wcon.VK_RETURN)
+      sleep(Consts.DATA_SLEEP)
       sleep(Consts.DATA_SLEEP)
 
       # Y coord
+      cap.key(ord('Y'))
+      sleep(Consts.DATA_SLEEP)
+      cap.delete()
       for char in y:
         cap.key(ord(char))
-        sleep(Consts.DATA_SLEEP)
       cap.key(wcon.VK_RETURN)
       sleep(Consts.DATA_SLEEP)
 
@@ -318,25 +371,28 @@ def applyAction(prev: Prev, update: ActionInfo, cap: CaptureData, posQueue: Simp
         prev.curPosition = posQueue.get()
         prev.index = 0
 
-def handleState(captureData: CaptureData, positions: SimpleQueue[tuple[bool, Point]], dataQueue: SimpleQueue):
+def handleState(captureData: CaptureData, positions: SimpleQueue, dataQueue: SimpleQueue):
   prev: Prev = Prev()
   name = captureData.window_name
-  if not positions.empty():
-    prev.curPosition = positions.get()
+  prev.curPosition = positions.get()
 
   def updateState() -> bool:
     img = captureData.capture()
     matches = findIcons(img)
-    actionInfo = processState(prev.state, prev.action, matches, captureData.size)
+
+    #img2 = Vision.drawRectangles(img.copy(), list(matches.values()))
+    #cv.imshow(f"Test: {name}", img2)
+    actionInfo = processState(prev, matches, captureData.size)
     action, data = actionInfo
-    print(f"<< {name}: at {prev.state} with action: {action} Data: {data}")
+    print(f"{name}: at {prev.state} with action: {action} Data: {data}")
+
 
     if action == prev.action:
       prev.count += 1
     else:
       prev.count = 0
-    if prev.count >= Consts.MAX_REPEAT:
-      print(f" << {name} hit repeat threshold on state {prev.state}.")
+    if prev.count >= Consts.MAX_REPEAT or prev.state == States.Unknown:
+      print(f" << {name} in error state on state {prev.state}.")
       print(f" << << state: {prev.state}")
       print(f" << << action: {prev.action}")
       print(f" << << pos: {prev.curPosition}")
@@ -345,20 +401,23 @@ def handleState(captureData: CaptureData, positions: SimpleQueue[tuple[bool, Poi
       print(f" << << matches: {matches}")
       prev.state = States.Startup
       prev.action = Actions.ChangeState
+      prev.count = 0
     else:
       applyAction(prev, actionInfo, captureData, positions, dataQueue, img, matches)
+      prev.action = action
 
-    return prev.curPosition is not None
+    return prev.curPosition is None
 
 
   return updateState
 
-def run(windowInfo: tuple[str, int], captureLock: Lock, positions: SimpleQueue[tuple[bool, Point]], dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
+def run(windowInfo: tuple[str, int], captureLock: Lock, positions: SimpleQueue, dataQueue: SimpleQueue, id: int, status: list[bool], killSwitch: Any):
   signal.signal(signal.SIGINT, signal.SIG_IGN)
 
   windowName, hwnd = windowInfo
   captureData = getWindowInfo(hwnd, captureLock)
   updater = handleState(captureData, positions, dataQueue)
+  count = 0
   while not(status[id] or killSwitch.value):
     if hwnd == None:
       sleep(5)
@@ -368,6 +427,8 @@ def run(windowInfo: tuple[str, int], captureLock: Lock, positions: SimpleQueue[t
         continue
     try:
       status[id] = updater()
+      count += 1
+      cv.waitKey(1)
     except Exception as ex:
       print(f" << window {windowName} handling Exception: {type(ex).__name__}, args: {ex.args}")
       if ex.args[0] == 1400:

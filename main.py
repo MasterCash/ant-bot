@@ -11,6 +11,17 @@ captureLock = Lock()
 def getMax(x1, x2) -> int:
   return x1 if x1 > x2 else x2
 
+def fillQueue(killSwitch, queue: SimpleQueue):
+  clusters, singles = getClusters(8, 10)
+  for cluster in clusters:
+    if killSwitch.value:
+      return
+    queue.put((True, cluster))
+  for single in singles:
+    if killSwitch.value:
+      return
+    queue.put((False, single))
+
 def main():
   def handleInterrupt(_signal, _frame):
     print("set killswitch")
@@ -27,12 +38,8 @@ def main():
 
   numCaptures = len(captures)
   stopped = Array('b',[False for _ in range(numCaptures)])
-  positions: SimpleQueue[tuple[bool, tuple[int, int]]] = SimpleQueue()
-  clusters, singles = getClusters()
-  for cluster in clusters:
-    positions.put((True, cluster))
-  for single in singles:
-    positions.put((False, single))
+  positions: SimpleQueue = SimpleQueue()
+
 
   runTime = time()
   procs: list[Process] = []
@@ -41,6 +48,9 @@ def main():
   db = Process(target=collectData, args=(killSwitch, dataQueue), name="database")
   db.start()
   procs.append(db)
+  posProc = Process(target=fillQueue, args=(killSwitch, positions), name="Position Queue Filler")
+  posProc.start()
+  procs.append(posProc)
 
   for i in range(numCaptures):
     p = Process(target=run, args=(captures[i], captureLock, positions, dataQueue, i, stopped, killSwitch), name=f'runner-{captures[i][0]}')

@@ -2,6 +2,7 @@ from queue import  Empty
 from multiprocessing import SimpleQueue
 import signal
 import sqlite3
+import string
 from time import sleep
 
 class Data:
@@ -61,19 +62,21 @@ class DataManager:
       result = cur.fetchone()
       return result
 
-
-  def sendData(self, uid, name, alliance, power, x, y):
+  def sendData(self, uid: string, name, alliance, power: string, x, y):
     con = self.getCon()
     if uid is None or not uid:
-      uid = "None"
+      uid = "0"
     if name is None or not name:
       name = "None"
     if power is None:
-      power = 0
+      power = "0"
     if x is None:
       x = -1
     if y is None:
       y = -1
+
+    uid = "".join([char for char in uid if char.isdigit()])
+    power = "".join([char for char in power if char.isdigit()])
 
     try:
       with con:
