@@ -204,7 +204,7 @@ def processState(prev: Prev, matches: dict[Icon, Box], windowSize: Point) -> Act
         if prev.action != Actions.Click and prev.action != Actions.Wait:
           return (Actions.Click, clickPoint(matches[Icon.x]))
         elif prev.action != Actions.Wait:
-          return (Actions.Wait, Consts.UI_SLEEP)
+          return (Actions.Wait, Consts.LOADING_SLEEP)
       elif Icon.loading in matches:
         return (Actions.Wait, Consts.LOADING_SLEEP)
       elif Icon.power in matches:
@@ -398,6 +398,7 @@ def handleState(captureData: CaptureData, positions: SimpleQueue, dataQueue: Sim
       prev.state = States.Startup
       prev.action = Actions.ChangeState
       prev.count = 0
+      captureData.key(wcon.VK_ESCAPE)
     else:
       applyAction(prev, actionInfo, captureData, positions, dataQueue, img, matches)
       prev.action = action
@@ -440,7 +441,7 @@ def handleText(dataQueue: SimpleQueue, img: np.ndarray, point: Point, hasAllianc
     allianceImg = Vision.crop(img, Consts.ALLIANCE_CROP)
     alliance = Vision.findText(allianceImg)
     if alliance is not None:
-      alliance = '[' + alliance[1:3] + ']' + alliance[4:]
+      alliance = '[' + alliance[1:4] + ']' + alliance[5:]
 
   idImg = Vision.crop(img, Consts.ID_CROP)
   uid = Vision.findText(idImg)

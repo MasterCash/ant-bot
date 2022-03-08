@@ -92,8 +92,9 @@ class DataManager:
           INSERT OR REPLACE INTO id_alliances (id, name)
           VALUES (?, ?)
         ''', (uid, alliance))
-    except:
+    except Exception as ex:
       print(f'error entering: {uid}, {name}, {alliance}, {power}, {x}, {y}')
+      print(f" << database handling Exception: {type(ex).__name__}, args: {ex.args}")
     con.close()
 
 def collectData(killswitch, dataQueue: SimpleQueue):

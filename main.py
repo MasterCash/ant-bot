@@ -12,6 +12,7 @@ def getMax(x1, x2) -> int:
   return x1 if x1 > x2 else x2
 
 def fillQueue(killSwitch, queue: SimpleQueue):
+  signal.signal(signal.SIGINT, signal.SIG_IGN)
   clusters, singles = getClusters()
   for cluster in clusters:
     if killSwitch.value:
